@@ -16,6 +16,7 @@ from tasks.reaction_game import router as reaction_router
 from tasks.hunger_checker import hunger_checker
 from tasks.box_notifier import box_notifier
 from tasks.reaction_game import reaction_notifier
+from tasks.duel_expiry import duel_expiry_checker
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -40,10 +41,16 @@ async def main():
     await init_db()
     logger.info("Database initialized.")
 
+    # Ensure at least one season exists
+    from services import season_service
+    season = await season_service.ensure_season(1)
+    logger.info(f"Active season: #{season['number']} ({season['name']})")
+
     # Start background tasks
     asyncio.create_task(hunger_checker(bot))
     asyncio.create_task(box_notifier(bot))
     asyncio.create_task(reaction_notifier(bot))
+    asyncio.create_task(duel_expiry_checker(bot))
 
     logger.info("Bot started.")
     await dp.start_polling(bot, skip_updates=True)

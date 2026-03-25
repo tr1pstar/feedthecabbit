@@ -8,7 +8,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from aiogram.filters import Command
 
 from config import ADMIN_ID
-from services import cabbit_service, skin_service
+from services import cabbit_service, skin_service, season_service
 from core.formatting import cabbit_status, escape
 from core.constants import CABBITLIST_PAGE_SIZE, RARITY_EMOJI
 from core.game_math import get_evolution
@@ -695,3 +695,107 @@ async def cmd_listskins(message: Message):
             await message.answer(text[i:i + 4000], parse_mode="HTML")
     else:
         await message.answer(text, parse_mode="HTML")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Season management
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.message(Command("seasoninfo"))
+async def cmd_seasoninfo(message: Message):
+    """/seasoninfo — show current season info."""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    info = await season_service.get_current_season()
+    if not info:
+        await message.answer("Нет активного сезона. Используй /newseason 1")
+        return
+
+    from datetime import datetime
+    started = datetime.fromtimestamp(info["started_at"]).strftime("%d.%m.%Y %H:%M")
+    all_cabs = await cabbit_service.get_all_cabbits()
+    alive = [c for c in all_cabs if not c.get("dead")]
+    await message.answer(
+        f"📅 <b>{info['name']}</b> (#{info['number']})\n\n"
+        f"🕐 Начат: {started}\n"
+        f"👥 Всего кеббитов: {len(all_cabs)}\n"
+        f"✅ Живых: {len(alive)}\n\n"
+        f"Новый сезон: /newseason <номер> [название]",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("newseason"))
+async def cmd_newseason(message: Message):
+    """
+    /newseason <number> [name]
+    Start a new season with FULL WIPE of all cabbits, duels, user skins.
+    Skin catalog is preserved.
+    """
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split(maxsplit=2)
+    if len(args) < 2:
+        await message.answer(
+            "Использование: /newseason <номер> [название]\n\n"
+            "⚠️ ЭТО ПОЛНЫЙ ВАЙП: все кеббиты, дуэли и купленные скины "
+            "будут удалены. Каталог скинов сохранится.\n\n"
+            "Пример: /newseason 2 Весенний сезон"
+        )
+        return
+
+    try:
+        new_number = int(args[1])
+    except ValueError:
+        await message.answer("Номер сезона должен быть числом.")
+        return
+
+    season_name = args[2].strip() if len(args) > 2 else ""
+
+    # Get current stats before wipe
+    all_cabs = await cabbit_service.get_all_cabbits()
+    alive_count = sum(1 for c in all_cabs if not c.get("dead"))
+
+    result = await season_service.start_new_season(new_number, season_name)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "season_exists":
+            await message.answer(
+                f"❌ Сезон #{new_number} уже существует.")
+        else:
+            await message.answer("❌ Ошибка.")
+        return
+
+    s_name = result["season_name"]
+    wiped = result["wiped_cabbits"]
+
+    # Broadcast to all former players
+    broadcast_text = (
+        f"🏆 <b>Новый сезон начался!</b>\n\n"
+        f"📅 <b>{s_name}</b>\n\n"
+        f"Все кеббиты сброшены — начни заново!\n"
+        f"Напиши /cabbit чтобы создать нового кеббита."
+    )
+    sent = 0
+    for c in all_cabs:
+        try:
+            await message.bot.send_message(
+                chat_id=c["user_id"],
+                text=broadcast_text,
+                parse_mode="HTML",
+            )
+            sent += 1
+        except Exception:
+            pass
+
+    await message.answer(
+        f"🏆 <b>{s_name}</b> (#{new_number}) запущен!\n\n"
+        f"🗑 Удалено кеббитов: {wiped}\n"
+        f"📢 Уведомлено игроков: {sent}/{len(all_cabs)}\n\n"
+        f"Каталог скинов сохранён.",
+        parse_mode="HTML",
+    )

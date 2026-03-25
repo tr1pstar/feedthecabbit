@@ -3,7 +3,7 @@ services/casino_service.py — casino slot machine service.
 No Telegram imports. Each method manages its own DB session.
 """
 from db.engine import get_session
-from repositories import cabbit_repo
+from repositories import cabbit_repo, duel_repo
 from core.constants import ACHIEVEMENTS
 from core.game_math import spin_slots, apply_xp, get_or_refresh_quests, update_quest_progress
 
@@ -53,17 +53,18 @@ def _update_quest_progress_cab(cab, action: str, amount: int = 1):
 
 
 async def play_casino(user_id: int, bet: int) -> dict:
-    """
-    Play casino with given bet.
-    Returns {ok, error, symbols, multiplier, net_xp, leveled_up, new_level,
-             won, new_achievements, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
             return {"ok": False, "error": "not_found"}
         if cab.dead:
             return {"ok": False, "error": "dead"}
+
+        # Block if in active duel
+        duel = await duel_repo.find_by_user(s, user_id)
+        if duel and duel.status == "active":
+            return {"ok": False, "error": "in_duel"}
+
         if cab.xp < bet:
             return {"ok": False, "error": "insufficient_xp", "xp": cab.xp}
         if bet < 1:

@@ -6,11 +6,12 @@ import random
 import time
 
 from db.engine import get_session
-from repositories import cabbit_repo, skin_repo
+from repositories import cabbit_repo, skin_repo, duel_repo
 from core.constants import (
     FOOD_TABLE, FOOD_HEAL, KNIFE_CHANCE, ITEM_TABLE, SICKNESS_CHANCE,
     SICKNESS_DURATION, RAID_COOLDOWN, SKIN_LEVEL_INTERVAL, COINS_PER_BOX,
     COINS_DAILY_BONUS, COINS_RAID_OK, RARITY_EMOJI, ACHIEVEMENTS,
+    RENAME_COST, WARN_12H, WARN_23H,
 )
 from core.game_math import (
     xp_for_level, get_evolution, get_box_interval, roll_box, roll_item,
@@ -25,7 +26,6 @@ from core.game_math import (
 # ---------------------------------------------------------------------------
 
 def _cabbit_to_dict(cab) -> dict:
-    """Convert ORM Cabbit to a plain dict for handler consumption."""
     return {
         "user_id": cab.user_id,
         "name": cab.name,
@@ -61,7 +61,6 @@ def _cabbit_to_dict(cab) -> dict:
 
 
 def _apply_xp_to_cab(cab, amount: int) -> tuple[bool, int]:
-    """Apply XP to ORM Cabbit. Returns (leveled_up, new_level)."""
     new_xp, new_level, leveled = apply_xp(cab.xp, cab.level, amount)
     cab.xp = new_xp
     cab.level = new_level
@@ -72,7 +71,6 @@ def _apply_xp_to_cab(cab, amount: int) -> tuple[bool, int]:
 
 
 def _check_and_cure_sickness(cab) -> bool:
-    """Auto-cure if time passed. Returns True if still sick."""
     if not cab.sick:
         return False
     if int(time.time()) >= cab.sick_until:
@@ -83,7 +81,6 @@ def _check_and_cure_sickness(cab) -> bool:
 
 
 def _check_achievements_cab(cab) -> list[dict]:
-    """Check achievements against ORM cabbit."""
     stats = dict(cab.stats or {})
     stats["max_level"] = max(stats.get("max_level", 0), cab.level)
     cab.stats = stats
@@ -96,7 +93,6 @@ def _check_achievements_cab(cab) -> list[dict]:
 
 
 def _unlock_achievements_cab(cab, new_achs: list[dict]) -> int:
-    """Unlock achievements on ORM cabbit. Returns total bonus XP."""
     earned = list(cab.achievements or [])
     total_xp = 0
     for ach in new_achs:
@@ -107,7 +103,6 @@ def _unlock_achievements_cab(cab, new_achs: list[dict]) -> int:
 
 
 def _update_quest_progress_cab(cab, action: str, amount: int = 1):
-    """Update quest progress on ORM cabbit."""
     quest_data = dict(cab.quests or {})
     tasks, refreshed = get_or_refresh_quests(quest_data)
     if refreshed:
@@ -124,7 +119,6 @@ def _update_quest_progress_cab(cab, action: str, amount: int = 1):
 # ---------------------------------------------------------------------------
 
 async def get_cabbit(user_id: int) -> dict | None:
-    """Get cabbit, auto-cure sickness. Returns dict or None."""
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
@@ -135,7 +129,6 @@ async def get_cabbit(user_id: int) -> dict | None:
 
 
 async def create_cabbit(user_id: int, name: str) -> dict:
-    """Create a new cabbit and return its dict."""
     async with get_session() as s:
         cab = await cabbit_repo.create(s, user_id, name)
         cab.rules_accepted = True
@@ -144,7 +137,6 @@ async def create_cabbit(user_id: int, name: str) -> dict:
 
 
 async def accept_rules(user_id: int) -> dict | None:
-    """Mark rules as accepted. Returns cabbit dict or None."""
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
@@ -156,7 +148,6 @@ async def accept_rules(user_id: int) -> dict | None:
 
 
 async def delete_cabbit(user_id: int) -> bool:
-    """Delete a cabbit. Returns True if found and deleted."""
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
@@ -165,20 +156,49 @@ async def delete_cabbit(user_id: int) -> bool:
         return True
 
 
-async def open_box(user_id: int) -> dict:
+async def rename_cabbit(user_id: int, new_name: str) -> dict:
     """
-    Open a box. Returns dict with ALL results:
-    {ok, error, food_name, food_emoji, food_xp, got_knife, item, event,
-     skin_drop, skin_level, coins_gained, daily_bonus, leveled_up, new_level,
-     evolution, new_achievements, sickness_roll, quest_progress,
-     crown_active, sick_debuff, cabbit, notify_knife_uids, actual_xp}
+    Rename cabbit for RENAME_COST coins.
+    Returns {ok, error, old_name, new_name, coins_left}
     """
+    if not new_name or len(new_name) > 20:
+        return {"ok": False, "error": "invalid_name"}
+
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
             return {"ok": False, "error": "not_found"}
         if cab.dead:
             return {"ok": False, "error": "dead"}
+        if cab.coins < RENAME_COST:
+            return {"ok": False, "error": "insufficient_coins",
+                    "coins": cab.coins, "cost": RENAME_COST}
+
+        old_name = cab.name
+        cab.name = new_name
+        cab.coins -= RENAME_COST
+        await cabbit_repo.save(s, cab)
+
+        return {
+            "ok": True,
+            "old_name": old_name,
+            "new_name": new_name,
+            "coins_left": cab.coins,
+        }
+
+
+async def open_box(user_id: int) -> dict:
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, user_id)
+        if not cab:
+            return {"ok": False, "error": "not_found"}
+        if cab.dead:
+            return {"ok": False, "error": "dead"}
+
+        # Block if in active duel
+        duel = await duel_repo.find_by_user(s, user_id)
+        if duel and duel.status == "active":
+            return {"ok": False, "error": "in_duel"}
 
         now = int(time.time())
         if not (cab.box_available or now >= cab.box_ts):
@@ -195,7 +215,6 @@ async def open_box(user_id: int) -> dict:
         evo = get_evolution(cab.level)
         box_cd = evo["box_cd"]
 
-        # Check knife existence
         knife_owner = await cabbit_repo.get_knife_owner(s)
         knife_exists = knife_owner is not None
 
@@ -212,7 +231,6 @@ async def open_box(user_id: int) -> dict:
 
         if got_knife:
             cab.has_knife = True
-            # Gather UIDs for knife notification
             alive_uids = await cabbit_repo.get_alive_uids(s)
             result["notify_knife_uids"] = [u for u in alive_uids if u != user_id]
             result["leveled_up"] = False
@@ -347,9 +365,10 @@ async def open_box(user_id: int) -> dict:
             heal = FOOD_HEAL.get(food_name, 3 * 3600)
             cab.last_fed = min(now, cab.last_fed + heal)
         elapsed_after = now - cab.last_fed
-        if elapsed_after < FOOD_HEAL.get("Корм", 6 * 3600):
+        # FIX: use WARN_12H/WARN_23H thresholds (not FOOD_HEAL values)
+        if elapsed_after < WARN_12H:
             cab.warned_12h = False
-        if elapsed_after < FOOD_HEAL.get("Вкусность", 12 * 3600):
+        if elapsed_after < WARN_23H:
             cab.warned_23h = False
         cab.duel_tokens += 1
 
@@ -373,10 +392,6 @@ async def open_box(user_id: int) -> dict:
 
 
 async def use_item(user_id: int, item: str) -> dict:
-    """
-    Use an inventory item.
-    Returns {ok, error, effect, cabbit, stolen_xp, target_name, leveled_up, new_level}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
@@ -431,10 +446,6 @@ async def use_item(user_id: int, item: str) -> dict:
 
 
 async def do_prestige(user_id: int) -> dict:
-    """
-    Prestige the cabbit.
-    Returns {ok, error, stars, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
@@ -452,17 +463,17 @@ async def do_prestige(user_id: int) -> dict:
 
 
 async def do_raid(user_id: int) -> dict:
-    """
-    Perform a raid.
-    Returns {ok, error, success, stolen/lost, target_name, target_uid,
-             leveled_up, new_level, coins_gained, new_achievements, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, user_id)
         if not cab:
             return {"ok": False, "error": "not_found"}
         if cab.dead:
             return {"ok": False, "error": "dead"}
+
+        # Block if in active duel
+        duel = await duel_repo.find_by_user(s, user_id)
+        if duel and duel.status == "active":
+            return {"ok": False, "error": "in_duel"}
 
         now = int(time.time())
         if now < cab.last_raid + RAID_COOLDOWN:
@@ -481,7 +492,6 @@ async def do_raid(user_id: int) -> dict:
         _update_quest_progress_cab(cab, "do_raid")
 
         if random.randint(1, 100) <= 40:
-            # Success
             stolen = max(1, int(target.xp * 0.1))
             stolen = min(stolen, 500)
             target.xp = max(0, target.xp - stolen)
@@ -499,7 +509,6 @@ async def do_raid(user_id: int) -> dict:
             result["new_level"] = new_level
             result["coins_gained"] = COINS_RAID_OK
         else:
-            # Fail
             lost = max(1, int(cab.xp * 0.05))
             cab.xp = max(0, cab.xp - lost)
             stats["raids_fail"] = stats.get("raids_fail", 0) + 1
@@ -524,11 +533,6 @@ async def do_raid(user_id: int) -> dict:
 
 
 async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
-    """
-    Use knife to kill target.
-    Returns {ok, error, shielded, killed, target_name, attacker_name,
-             new_achievements, broadcast_uids, cabbit}
-    """
     async with get_session() as s:
         attacker = await cabbit_repo.get(s, attacker_id)
         target = await cabbit_repo.get(s, target_id)
@@ -543,7 +547,6 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
         result = {"ok": True, "target_name": target_name, "attacker_name": attacker_name,
                   "target_uid": target_id, "attacker_uid": attacker_id}
 
-        # Shield check
         inv = dict(target.inventory or {})
         if inv.get("Щит", 0) > 0:
             inv["Щит"] -= 1
@@ -556,7 +559,6 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
             result["cabbit"] = _cabbit_to_dict(attacker)
             return result
 
-        # Kill
         target.dead = True
         await cabbit_repo.save(s, target)
 
@@ -565,7 +567,6 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
         stats["kills"] = stats.get("kills", 0) + 1
         attacker.stats = stats
 
-        # Achievements
         new_achs = _check_achievements_cab(attacker)
         result["new_achievements"] = []
         if new_achs:
@@ -575,7 +576,6 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
 
         await cabbit_repo.save(s, attacker)
 
-        # Broadcast UIDs
         alive_uids = await cabbit_repo.get_alive_uids(s)
         result["broadcast_uids"] = [u for u in alive_uids if u not in (attacker_id, target_id)]
         result["shielded"] = False
@@ -585,30 +585,23 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
 
 
 async def get_leaderboard(limit: int = 10) -> list[dict]:
-    """Return leaderboard entries as list of dicts."""
     async with get_session() as s:
         cabs = await cabbit_repo.get_leaderboard(s, limit)
         return [_cabbit_to_dict(c) for c in cabs]
 
 
 async def get_all_cabbits() -> list[dict]:
-    """Return all cabbits as list of dicts."""
     async with get_session() as s:
         cabs = await cabbit_repo.get_all(s)
         return [_cabbit_to_dict(c) for c in cabs]
 
 
 async def get_alive_uids() -> list[int]:
-    """Return list of alive cabbit user IDs."""
     async with get_session() as s:
         return await cabbit_repo.get_alive_uids(s)
 
 
 async def ban_cabbit(target_id: int, admin_id: int, reason: str) -> dict:
-    """
-    Ban a cabbit (admin action).
-    Returns {ok, error, target_name, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, target_id)
         if not cab:
@@ -629,10 +622,6 @@ async def ban_cabbit(target_id: int, admin_id: int, reason: str) -> dict:
 
 
 async def add_xp(target_id: int, amount: int) -> dict:
-    """
-    Admin add/remove XP.
-    Returns {ok, error, old_level, new_level, leveled_up, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, target_id)
         if not cab:
@@ -657,10 +646,6 @@ async def add_xp(target_id: int, amount: int) -> dict:
 
 
 async def add_coins(target_id: int, amount: int) -> dict:
-    """
-    Admin add/remove coins.
-    Returns {ok, error, cabbit}
-    """
     async with get_session() as s:
         cab = await cabbit_repo.get(s, target_id)
         if not cab:
@@ -672,7 +657,6 @@ async def add_coins(target_id: int, amount: int) -> dict:
 
 
 async def get_skin_file_id(cabbit_dict: dict) -> str | None:
-    """Get file_id for the cabbit's current skin. Returns None for default."""
     skin_id = cabbit_dict.get("skin")
     if not skin_id:
         return None

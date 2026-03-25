@@ -5,6 +5,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 class Base(DeclarativeBase):
     pass
 
+class Season(Base):
+    __tablename__ = "seasons"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    number: Mapped[int] = mapped_column(Integer, unique=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    started_at: Mapped[int] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
 class Cabbit(Base):
     __tablename__ = "cabbits"
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -37,6 +45,7 @@ class Cabbit(Base):
     last_box_day: Mapped[str | None] = mapped_column(String(10), nullable=True)
     banned_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     banned_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    season: Mapped[int] = mapped_column(Integer, default=1)
 
 class Skin(Base):
     __tablename__ = "skins"
@@ -60,12 +69,13 @@ class UserSkin(Base):
 class Duel(Base):
     __tablename__ = "duels"
     challenger_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    target_id: Mapped[int] = mapped_column(BigInteger)
+    target_id: Mapped[int] = mapped_column(BigInteger, index=True)
     stake: Mapped[int] = mapped_column(Integer)
     round: Mapped[int] = mapped_column(Integer, default=1)
     scores: Mapped[dict] = mapped_column(JSONB, default=dict)
     moves: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[int] = mapped_column(Integer, default=0)
 
 class Promo(Base):
     __tablename__ = "promos"

@@ -52,6 +52,11 @@ async def get_shop(session: AsyncSession) -> list[Skin]:
     skins.sort(key=lambda s: order.get(s.rarity, 0))
     return skins
 
+async def get_by_rarity(session: AsyncSession, rarity: str) -> list[Skin]:
+    """Get all skins of a specific rarity."""
+    r = await session.execute(select(Skin).where(Skin.rarity == rarity))
+    return list(r.scalars().all())
+
 async def get_user_skins(session: AsyncSession, user_id: int) -> list[str]:
     r = await session.execute(select(UserSkin.skin_id).where(UserSkin.user_id == user_id))
     return list(r.scalars().all())
@@ -65,3 +70,9 @@ async def has_skin(session: AsyncSession, user_id: int, skin_id: str) -> bool:
         select(UserSkin).where(UserSkin.user_id == user_id, UserSkin.skin_id == skin_id).limit(1)
     )
     return r.scalar_one_or_none() is not None
+
+async def delete_all_user_skins(session: AsyncSession) -> int:
+    """Delete all user_skins (for season wipe). Returns count deleted."""
+    r = await session.execute(sql_delete(UserSkin))
+    await session.flush()
+    return r.rowcount

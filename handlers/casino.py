@@ -45,6 +45,9 @@ async def cmd_casino(message: Message):
         elif err == "insufficient_xp":
             await message.answer(
                 f"❌ Недостаточно XP! У тебя: {result.get('xp', 0)}")
+        elif err == "in_duel":
+            await message.answer(
+                "⚔️ Ты сейчас в дуэли! Нельзя играть в казино во время дуэли.")
         else:
             await message.answer("❌ Ошибка.")
         return

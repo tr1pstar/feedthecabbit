@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
-from services import cabbit_service, casino_service, skin_service
+from services import cabbit_service, casino_service, skin_service, duel_service
 from core.formatting import (
     cabbit_status, cabbit_keyboard, get_reply_keyboard,
     paginated_target_buttons, escape,
@@ -25,6 +25,7 @@ from core.constants import (
     RULES_TEXT, REPLY_KB_LABELS, CABBIT_PHOTO,
     RAID_COOLDOWN, RARITY_EMOJI, SKIN_LEVEL_INTERVAL,
     FOOD_HEAL, COINS_DAILY_BONUS, COINS_RAID_OK,
+    RENAME_COST, CAPSULE_PRICES, CAPSULE_NAMES,
 )
 from core.game_math import get_evolution, xp_for_level
 
@@ -35,6 +36,10 @@ router = Router()
 
 class NamingState(StatesGroup):
     waiting_name = State()
+
+
+class RenamingState(StatesGroup):
+    waiting_new_name = State()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -367,34 +372,43 @@ async def callback_cabbit(callback: CallbackQuery):
 
     # ── shop ──────────────────────────────────────────────────────────────
     if action == "shop":
-        result = await skin_service.get_shop()
-        items = result.get("items", [])
-        coins = cab.get("coins", 0)
-
-        if not items:
-            await callback.answer("Магазин пока пуст!", show_alert=True)
+        result = await skin_service.get_capsule_shop(uid)
+        if not result.get("ok"):
+            await callback.answer("❌ Ошибка.", show_alert=True)
             return
 
         await callback.answer()
-        # Check owned skins
-        owned_result = await skin_service.get_user_skins(uid)
-        owned_ids = set()
-        if owned_result.get("ok"):
-            owned_ids = {s["skin_id"] for s in owned_result.get("skins", [])}
+        capsules = result.get("capsules", [])
+        coins = result.get("coins", 0)
 
-        lines = [f"🏪 <b>Магазин скинов</b>\n🪙 Баланс: <b>{coins}</b>\n"]
+        lines = [f"🏪 <b>Магазин капсул</b>\n🪙 Баланс: <b>{coins}</b>\n"]
         buttons = []
-        for item in items:
-            r_em = item["rarity_emoji"]
-            price = item["shop_price"]
-            if item["skin_id"] in owned_ids:
-                lines.append(f"  {r_em} <b>{item['display_name']}</b> — ✅")
+        for cap in capsules:
+            r_em = cap["rarity_emoji"]
+            price = cap["price"]
+            total = cap["total_count"]
+            avail = cap["available_count"]
+            if total == 0:
+                continue
+            if cap["owned_all"]:
+                lines.append(f"  {r_em} <b>{cap['name']}</b> — ✅ все собраны")
             else:
-                lines.append(f"  {r_em} <b>{item['display_name']}</b> — 🪙 {price}")
+                lines.append(
+                    f"  {r_em} <b>{cap['name']}</b> — 🪙 {price} "
+                    f"({avail}/{total} доступно)")
                 buttons.append([InlineKeyboardButton(
-                    text=f"🪙 {price} — {item['display_name']}",
-                    callback_data=f"shop_buy:{item['skin_id']}"
+                    text=f"🪙 {price} — {cap['name']}",
+                    callback_data=f"capsule_buy:{cap['rarity']}"
                 )])
+
+        if not any(c["total_count"] > 0 for c in capsules):
+            lines.append("\nКапсул пока нет. Загляни позже!")
+
+        lines.append(f"\n✏️ Смена имени — 🪙 {RENAME_COST}")
+        buttons.append([InlineKeyboardButton(
+            text=f"✏️ Сменить имя ({RENAME_COST} 🪙)",
+            callback_data="cabbit:rename"
+        )])
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
         text = "\n".join(lines)
         try:
@@ -549,6 +563,45 @@ async def callback_cabbit(callback: CallbackQuery):
         return
 
     # ── duel ──────────────────────────────────────────────────────────────
+    if action == "rename":
+        await callback.answer()
+        coins = cab.get("coins", 0)
+        if coins < RENAME_COST:
+            text = (
+                f"✏️ <b>Смена имени</b>\n\n"
+                f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
+                f"Баланс: <b>{coins} 🪙</b>\n\n"
+                f"❌ Не хватает <b>{RENAME_COST - coins} 🪙</b>"
+            )
+            buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:shop")]]
+        else:
+            text = (
+                f"✏️ <b>Смена имени</b>\n\n"
+                f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
+                f"Баланс: <b>{coins} 🪙</b>\n\n"
+                f"Напиши новое имя (до 20 символов):"
+            )
+            buttons = [[InlineKeyboardButton(text="❌ Отмена", callback_data="cabbit:shop")]]
+            # Set FSM state
+            from aiogram.fsm.context import FSMContext
+            # We can't set FSM from callback without state, so use a flag
+            # Instead, prompt user to use /rename command
+            text = (
+                f"✏️ <b>Смена имени</b>\n\n"
+                f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
+                f"Баланс: <b>{coins} 🪙</b>\n\n"
+                f"Используй команду:\n"
+                f"<code>/rename НовоеИмя</code>"
+            )
+            buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:shop")]]
+        try:
+            await callback.message.edit_caption(caption=text, parse_mode="HTML",
+                                                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        except Exception:
+            await callback.message.edit_text(text=text, parse_mode="HTML",
+                                             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        return
+
     if action == "duel":
         if cab.get("duel_tokens", 0) <= 0:
             await callback.answer("У тебя нет жетонов дуэли!", show_alert=True)
@@ -577,6 +630,8 @@ async def callback_cabbit(callback: CallbackQuery):
                 await callback.answer("⏳ Коробка ещё не готова!", show_alert=True)
             elif err == "dead":
                 await callback.answer("💀 Твой кеббит умер.", show_alert=True)
+            elif err == "in_duel":
+                await callback.answer("⚔️ Нельзя открывать коробки во время дуэли!", show_alert=True)
             else:
                 await callback.answer("❌ Ошибка.", show_alert=True)
             return
@@ -718,6 +773,8 @@ async def callback_casino_bet(callback: CallbackQuery):
         err = result.get("error", "")
         if err == "insufficient_xp":
             await callback.answer(f"Не хватает XP! У тебя {result.get('xp', 0)}.", show_alert=True)
+        elif err == "in_duel":
+            await callback.answer("⚔️ Нельзя играть в казино во время дуэли!", show_alert=True)
         else:
             await callback.answer("❌ Ошибка.", show_alert=True)
         return
@@ -975,6 +1032,8 @@ async def _do_raid(callback: CallbackQuery, uid: int):
             await callback.answer(f"⏳ Рейд через {left // 60}м", show_alert=True)
         elif err == "no_targets":
             await callback.answer("Нет целей для рейда!", show_alert=True)
+        elif err == "in_duel":
+            await callback.answer("⚔️ Нельзя рейдить во время дуэли!", show_alert=True)
         else:
             await callback.answer("❌ Ошибка.", show_alert=True)
         return
@@ -1289,181 +1348,162 @@ async def cmd_shop(message: Message):
         await message.answer("❌ Сначала создай кеббита через /cabbit")
         return
 
-    result = await skin_service.get_shop()
-    items = result.get("items", [])
-    coins = cab.get("coins", 0)
-
-    if not items:
-        await message.answer("🏪 Магазин пока пуст. Загляни позже!")
+    result = await skin_service.get_capsule_shop(uid)
+    if not result.get("ok"):
+        await message.answer("❌ Ошибка.")
         return
 
-    owned_result = await skin_service.get_user_skins(uid)
-    owned_ids = set()
-    if owned_result.get("ok"):
-        owned_ids = {s["skin_id"] for s in owned_result.get("skins", [])}
+    capsules = result.get("capsules", [])
+    coins = result.get("coins", 0)
 
-    lines = [f"🏪 <b>Магазин скинов</b>\n🪙 Баланс: <b>{coins}</b> монет\n"]
+    lines = [f"🏪 <b>Магазин капсул</b>\n🪙 Баланс: <b>{coins}</b> монет\n"]
     buttons = []
-    for item in items:
-        r_em = item["rarity_emoji"]
-        price = item["shop_price"]
-        if item["skin_id"] in owned_ids:
-            lines.append(f"  {r_em} <b>{item['display_name']}</b> — ✅ куплено")
+    for cap in capsules:
+        r_em = cap["rarity_emoji"]
+        price = cap["price"]
+        total = cap["total_count"]
+        avail = cap["available_count"]
+        if total == 0:
+            continue
+        if cap["owned_all"]:
+            lines.append(f"  {r_em} <b>{cap['name']}</b> — ✅ все собраны")
         else:
-            lines.append(f"  {r_em} <b>{item['display_name']}</b> — 🪙 {price}")
+            lines.append(
+                f"  {r_em} <b>{cap['name']}</b> — 🪙 {price} "
+                f"({avail}/{total} доступно)")
             buttons.append([InlineKeyboardButton(
-                text=f"🪙 {price} — {item['display_name']}",
-                callback_data=f"shop_buy:{item['skin_id']}"
+                text=f"🪙 {price} — {cap['name']}",
+                callback_data=f"capsule_buy:{cap['rarity']}"
             )])
+
+    if not any(c["total_count"] > 0 for c in capsules):
+        lines.append("\nКапсул пока нет. Загляни позже!")
+
+    lines.append(f"\n✏️ Смена имени: /rename НовоеИмя — 🪙 {RENAME_COST}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("shop_buy:"))
-async def callback_shop_buy(callback: CallbackQuery):
-    """First click — show skin preview with photo and confirm button."""
+@router.callback_query(F.data.startswith("capsule_buy:"))
+async def callback_capsule_buy(callback: CallbackQuery):
+    """Buy a capsule of given rarity."""
     uid = callback.from_user.id
-    skin_id = callback.data.split(":")[1]
+    rarity = callback.data.split(":")[1]
 
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
         await callback.answer("❌ Кеббит не найден.", show_alert=True)
         return
 
-    preview = await skin_service.get_skin_preview(skin_id)
-    if not preview.get("ok") or preview.get("shop_price") is None:
-        await callback.answer("Этот скин не продаётся!", show_alert=True)
+    price = CAPSULE_PRICES.get(rarity, 0)
+    coins = cab.get("coins", 0)
+    name = CAPSULE_NAMES.get(rarity, "Капсула")
+    r_em = RARITY_EMOJI.get(rarity, "⚪")
+
+    if coins < price:
+        await callback.answer(
+            f"Не хватает монет! Нужно {price}, у тебя {coins}.",
+            show_alert=True)
         return
 
     await callback.answer()
-    r_em = preview["rarity_emoji"]
-    price = preview["shop_price"]
-    coins = cab.get("coins", 0)
-
-    # Check if owned
-    owned_result = await skin_service.get_user_skins(uid)
-    owned_ids = set()
-    if owned_result.get("ok"):
-        owned_ids = {s["skin_id"] for s in owned_result.get("skins", [])}
-
-    if skin_id in owned_ids:
-        text = (
-            f"{r_em} <b>{preview['display_name']}</b>\n"
-            f"Редкость: {preview.get('rarity', 'common')}\n\n"
-            f"✅ У тебя уже есть этот скин!"
-        )
-        buttons = [[InlineKeyboardButton(text="◀️ Назад в магазин", callback_data="shop:back")]]
-    elif coins >= price:
-        text = (
-            f"{r_em} <b>{preview['display_name']}</b>\n"
-            f"Редкость: {preview.get('rarity', 'common')}\n"
-            f"Цена: <b>{price} 🪙</b>\n"
-            f"Баланс: <b>{coins} 🪙</b>\n\n"
-            f"Купить этот скин?"
-        )
-        buttons = [
-            [InlineKeyboardButton(text=f"✅ Купить за {price} 🪙",
-                                  callback_data=f"shop_confirm:{skin_id}")],
-            [InlineKeyboardButton(text="◀️ Назад в магазин", callback_data="shop:back")],
-        ]
-    else:
-        text = (
-            f"{r_em} <b>{preview['display_name']}</b>\n"
-            f"Редкость: {preview.get('rarity', 'common')}\n"
-            f"Цена: <b>{price} 🪙</b>\n"
-            f"Баланс: <b>{coins} 🪙</b>\n\n"
-            f"❌ Не хватает <b>{price - coins} 🪙</b>"
-        )
-        buttons = [[InlineKeyboardButton(text="◀️ Назад в магазин", callback_data="shop:back")]]
-
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    file_id = preview.get("file_id")
-
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"✅ Открыть за {price} 🪙",
+            callback_data=f"capsule_confirm:{rarity}")],
+        [InlineKeyboardButton(text="◀️ Назад в магазин", callback_data="shop:back")],
+    ]
+    text = (
+        f"{r_em} <b>{name}</b>\n\n"
+        f"Цена: <b>{price} 🪙</b>\n"
+        f"Баланс: <b>{coins} 🪙</b>\n\n"
+        f"Ты получишь случайный {rarity}-скин,\n"
+        f"которого у тебя ещё нет.\n\n"
+        f"Открыть капсулу?"
+    )
     try:
-        if file_id:
-            await callback.message.answer_photo(photo=file_id, caption=text,
-                                                parse_mode="HTML", reply_markup=kb)
-        else:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.edit_caption(caption=text, parse_mode="HTML",
+                                            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.edit_text(text=text, parse_mode="HTML",
+                                         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
-@router.callback_query(F.data.startswith("shop_confirm:"))
-async def callback_shop_confirm(callback: CallbackQuery):
-    """Confirm purchase — deduct coins and give skin."""
+@router.callback_query(F.data.startswith("capsule_confirm:"))
+async def callback_capsule_confirm(callback: CallbackQuery):
+    """Confirm capsule purchase — deduct coins, give random skin."""
     uid = callback.from_user.id
-    skin_id = callback.data.split(":")[1]
+    rarity = callback.data.split(":")[1]
 
-    result = await skin_service.buy_skin(uid, skin_id)
+    result = await skin_service.buy_capsule(uid, rarity)
     if not result.get("ok"):
         err = result.get("error", "")
-        if err == "already_owned":
-            await callback.answer("У тебя уже есть этот скин!", show_alert=True)
+        if err == "all_owned":
+            await callback.answer("У тебя уже все скины этой редкости!", show_alert=True)
+        elif err == "no_skins_in_rarity":
+            await callback.answer("Нет скинов этой редкости!", show_alert=True)
         elif err == "insufficient_coins":
             await callback.answer(
                 f"Не хватает монет! Нужно {result.get('price', 0)}, "
                 f"у тебя {result.get('coins', 0)}.", show_alert=True)
-        elif err == "not_for_sale":
-            await callback.answer("Скин не продаётся!", show_alert=True)
         else:
             await callback.answer("❌ Ошибка.", show_alert=True)
         return
 
     await callback.answer()
     r_em = result.get("rarity_emoji", "⚪")
+    file_id = result.get("file_id")
     text = (
-        f"✅ Куплен: {r_em} <b>{result['skin_name']}</b>\n"
+        f"🎉 <b>КАПСУЛА ОТКРЫТА!</b>\n\n"
+        f"Получен скин: {r_em} <b>{result['skin_name']}</b>\n"
         f"🪙 -{result['price']} монет (осталось: {result['coins_left']})\n\n"
         f"Выбрать: /skins"
     )
     try:
-        await callback.message.edit_caption(caption=text, parse_mode="HTML")
+        if file_id:
+            await callback.message.answer_photo(photo=file_id, caption=text,
+                                                parse_mode="HTML")
+        else:
+            await callback.message.answer(text, parse_mode="HTML")
     except Exception:
-        try:
-            await callback.message.edit_text(text=text, parse_mode="HTML")
-        except Exception:
-            pass
+        await callback.message.answer(text, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("shop:"))
 async def callback_shop_back(callback: CallbackQuery):
-    """Return to shop from preview."""
+    """Return to capsule shop."""
     await callback.answer()
     uid = callback.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
         return
 
-    result = await skin_service.get_shop()
-    items = result.get("items", [])
-    coins = cab.get("coins", 0)
-
-    if not items:
-        try:
-            await callback.message.edit_text(text="🏪 Магазин пуст.")
-        except Exception:
-            pass
+    result = await skin_service.get_capsule_shop(uid)
+    if not result.get("ok"):
         return
 
-    owned_result = await skin_service.get_user_skins(uid)
-    owned_ids = set()
-    if owned_result.get("ok"):
-        owned_ids = {s["skin_id"] for s in owned_result.get("skins", [])}
+    capsules = result.get("capsules", [])
+    coins = result.get("coins", 0)
 
-    lines = [f"🏪 <b>Магазин скинов</b>\n🪙 Баланс: <b>{coins}</b> монет\n"]
+    lines = [f"🏪 <b>Магазин капсул</b>\n🪙 Баланс: <b>{coins}</b> монет\n"]
     buttons = []
-    for item in items:
-        r_em = item["rarity_emoji"]
-        price = item["shop_price"]
-        if item["skin_id"] in owned_ids:
-            lines.append(f"  {r_em} <b>{item['display_name']}</b> — ✅ куплено")
+    for cap in capsules:
+        r_em = cap["rarity_emoji"]
+        price = cap["price"]
+        total = cap["total_count"]
+        avail = cap["available_count"]
+        if total == 0:
+            continue
+        if cap["owned_all"]:
+            lines.append(f"  {r_em} <b>{cap['name']}</b> — ✅ все собраны")
         else:
-            lines.append(f"  {r_em} <b>{item['display_name']}</b> — 🪙 {price}")
+            lines.append(
+                f"  {r_em} <b>{cap['name']}</b> — 🪙 {price} "
+                f"({avail}/{total} доступно)")
             buttons.append([InlineKeyboardButton(
-                text=f"🪙 {price} — {item['display_name']}",
-                callback_data=f"shop_buy:{item['skin_id']}"
+                text=f"🪙 {price} — {cap['name']}",
+                callback_data=f"capsule_buy:{cap['rarity']}"
             )])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
@@ -1475,6 +1515,58 @@ async def callback_shop_back(callback: CallbackQuery):
             await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
             pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rename command
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.message(Command("rename"))
+async def cmd_rename(message: Message):
+    """/rename <NewName> — rename cabbit for RENAME_COST coins."""
+    uid = message.from_user.id
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab or cab.get("dead"):
+        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip():
+        await message.answer(
+            f"✏️ <b>Смена имени</b>\n\n"
+            f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
+            f"Баланс: <b>{cab.get('coins', 0)} 🪙</b>\n\n"
+            f"Использование: <code>/rename НовоеИмя</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    new_name = args[1].strip()
+    if len(new_name) > 20:
+        await message.answer("❌ Имя слишком длинное! Максимум 20 символов.")
+        return
+
+    result = await cabbit_service.rename_cabbit(uid, new_name)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "insufficient_coins":
+            await message.answer(
+                f"❌ Не хватает монет!\n"
+                f"Нужно: <b>{RENAME_COST} 🪙</b>\n"
+                f"У тебя: <b>{result.get('coins', 0)} 🪙</b>",
+                parse_mode="HTML")
+        elif err == "invalid_name":
+            await message.answer("❌ Недопустимое имя.")
+        else:
+            await message.answer("❌ Ошибка.")
+        return
+
+    await message.answer(
+        f"✅ Имя изменено!\n\n"
+        f"<b>{result['old_name']}</b> → <b>{result['new_name']}</b>\n"
+        f"🪙 -{RENAME_COST} монет (осталось: {result['coins_left']})",
+        parse_mode="HTML",
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

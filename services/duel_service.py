@@ -54,11 +54,14 @@ def _update_quest_progress_cab(cab, action: str, amount: int = 1):
     cab.quests = quest_data
 
 
+async def is_in_duel(user_id: int) -> bool:
+    """Check if user is currently in any active/pending duel."""
+    async with get_session() as s:
+        duel = await duel_repo.find_by_user(s, user_id)
+        return duel is not None
+
+
 async def send_challenge(challenger_id: int, target_id: int, stake: int) -> dict:
-    """
-    Send a duel challenge. Deducts 1 duel token from challenger.
-    Returns {ok, error, challenger_name, target_name, stake}
-    """
     async with get_session() as s:
         c_cab = await cabbit_repo.get(s, challenger_id)
         t_cab = await cabbit_repo.get(s, target_id)
@@ -76,10 +79,13 @@ async def send_challenge(challenger_id: int, target_id: int, stake: int) -> dict
         if stake < 1:
             return {"ok": False, "error": "min_stake"}
 
-        # Check for existing duel
-        existing = await duel_repo.get(s, challenger_id)
-        if existing:
+        # Check for existing duel for either player
+        existing_c = await duel_repo.find_by_user(s, challenger_id)
+        if existing_c:
             return {"ok": False, "error": "duel_exists"}
+        existing_t = await duel_repo.find_by_user(s, target_id)
+        if existing_t:
+            return {"ok": False, "error": "target_in_duel"}
 
         c_cab.duel_tokens -= 1
         await cabbit_repo.save(s, c_cab)
@@ -94,10 +100,6 @@ async def send_challenge(challenger_id: int, target_id: int, stake: int) -> dict
 
 
 async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
-    """
-    Accept a pending duel.
-    Returns {ok, error, challenger_name, target_name, stake}
-    """
     async with get_session() as s:
         duel = await duel_repo.get(s, challenger_id)
         if not duel or duel.status != "pending" or duel.target_id != acceptor_id:
@@ -107,7 +109,6 @@ async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
         t_cab = await cabbit_repo.get(s, acceptor_id)
 
         if not c_cab or c_cab.dead or not t_cab or t_cab.dead:
-            # Refund token and delete duel
             await duel_repo.delete(s, challenger_id)
             if c_cab and not c_cab.dead:
                 c_cab.duel_tokens += 1
@@ -127,10 +128,6 @@ async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
 
 
 async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
-    """
-    Decline a pending duel. Refunds token to challenger.
-    Returns {ok, error, challenger_name, decliner_name}
-    """
     async with get_session() as s:
         duel = await duel_repo.get(s, challenger_id)
         if not duel or duel.target_id != decliner_id:
@@ -154,13 +151,6 @@ async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
 
 
 async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
-    """
-    Record a move. If both moves are in, resolve the round.
-    Returns {ok, error, waiting, resolved, result}
-    result (when resolved): {tie, winner_uid, loser_uid, winner_name, loser_name,
-     c_move, t_move, stake, actual_stake, leveled_up, new_level, new_achievements,
-     winner_xp, loser_xp}
-    """
     async with get_session() as s:
         duel = await duel_repo.get(s, challenger_id)
         if not duel or duel.status != "active":
@@ -194,7 +184,6 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         outcome = resolve_duel_move(c_move, t_move)
 
         if outcome == "tie":
-            # Tie — reset moves, replay
             duel.moves = {}
             await duel_repo.save(s, duel)
             return {
