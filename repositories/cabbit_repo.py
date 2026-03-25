@@ -6,6 +6,10 @@ import time
 async def get(session: AsyncSession, user_id: int) -> Cabbit | None:
     return await session.get(Cabbit, user_id)
 
+async def get_by_uid(session: AsyncSession, uid: int) -> Cabbit | None:
+    r = await session.execute(select(Cabbit).where(Cabbit.uid == uid))
+    return r.scalar_one_or_none()
+
 async def create(session: AsyncSession, user_id: int, name: str) -> Cabbit:
     now = int(time.time())
     cabbit = Cabbit(

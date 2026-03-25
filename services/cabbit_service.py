@@ -27,6 +27,7 @@ from core.game_math import (
 
 def _cabbit_to_dict(cab) -> dict:
     return {
+        "uid": cab.uid,
         "user_id": cab.user_id,
         "name": cab.name,
         "xp": cab.xp,
@@ -126,6 +127,12 @@ async def get_cabbit(user_id: int) -> dict | None:
         _check_and_cure_sickness(cab)
         await cabbit_repo.save(s, cab)
         return _cabbit_to_dict(cab)
+
+
+async def get_user_id_by_uid(uid: int) -> int | None:
+    async with get_session() as s:
+        cab = await cabbit_repo.get_by_uid(s, uid)
+        return cab.user_id if cab else None
 
 
 async def create_cabbit(user_id: int, name: str) -> dict:

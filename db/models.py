@@ -1,6 +1,8 @@
-from sqlalchemy import BigInteger, Boolean, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, Integer, Sequence, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+cabbit_uid_seq = Sequence("cabbit_uid_seq")
 
 class Base(DeclarativeBase):
     pass
@@ -15,6 +17,7 @@ class Season(Base):
 
 class Cabbit(Base):
     __tablename__ = "cabbits"
+    uid: Mapped[int] = mapped_column(Integer, cabbit_uid_seq, server_default=cabbit_uid_seq.next_value(), unique=True, nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(20))
     xp: Mapped[int] = mapped_column(Integer, default=0)

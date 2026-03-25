@@ -7,8 +7,26 @@ AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_co
 
 async def init_db():
     from db.models import Base
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate: add uid column if missing
+        cols = await conn.run_sync(
+            lambda sync_conn: [
+                r[0] for r in sync_conn.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='cabbits'")
+                )
+            ]
+        )
+        if "uid" not in cols:
+            await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS cabbit_uid_seq"))
+            await conn.execute(text(
+                "ALTER TABLE cabbits ADD COLUMN uid INTEGER UNIQUE DEFAULT nextval('cabbit_uid_seq')"
+            ))
+            await conn.execute(text(
+                "UPDATE cabbits SET uid = nextval('cabbit_uid_seq') WHERE uid IS NULL"
+            ))
+            await conn.execute(text("ALTER TABLE cabbits ALTER COLUMN uid SET NOT NULL"))
 
 @asynccontextmanager
 async def get_session():

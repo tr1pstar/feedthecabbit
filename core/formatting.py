@@ -3,7 +3,7 @@ core/formatting.py — display helpers for Telegram messages.
 """
 import os
 import time
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from core.constants import (DEATH_24H, WARN_12H, EVOLUTIONS, RARITY_EMOJI,
     REPLY_KB_LABELS, DUEL_PAGE_SIZE, RAID_COOLDOWN, CABBIT_PHOTO)
 from core.game_math import xp_for_level, get_evolution, check_sickness
@@ -16,8 +16,8 @@ def escape(text: str) -> str:
 def get_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [ReplyKeyboardButton(text="🐰 Кеббит"), ReplyKeyboardButton(text="🎰 Казино"), ReplyKeyboardButton(text="⚔️ Бой")],
-            [ReplyKeyboardButton(text="📋 Квесты"), ReplyKeyboardButton(text="🏪 Магазин"), ReplyKeyboardButton(text="📊 Топ")],
+            [KeyboardButton(text="🐰 Кеббит"), KeyboardButton(text="🎰 Казино"), KeyboardButton(text="⚔️ Бой")],
+            [KeyboardButton(text="📋 Квесты"), KeyboardButton(text="🏪 Магазин"), KeyboardButton(text="📊 Топ")],
         ],
         resize_keyboard=True,
     )

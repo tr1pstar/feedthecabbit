@@ -37,7 +37,11 @@ async def callback_duel_send(callback: CallbackQuery):
             await _edit_card(callback, cab)
         return
 
-    target_uid = int(target_uid_str)
+    # Resolve cabbit uid to telegram user_id
+    target_uid = await cabbit_service.get_user_id_by_uid(int(target_uid_str))
+    if not target_uid:
+        await callback.answer("Кеббит не найден!", show_alert=True)
+        return
 
     c_cab = await cabbit_service.get_cabbit(challenger)
     t_cab = await cabbit_service.get_cabbit(target_uid)

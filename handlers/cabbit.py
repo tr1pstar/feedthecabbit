@@ -607,8 +607,9 @@ async def callback_cabbit(callback: CallbackQuery):
             await callback.answer("У тебя нет жетонов дуэли!", show_alert=True)
             return
         all_cabs = await cabbit_service.get_all_cabbits()
-        others = [(c["user_id"], c) for c in all_cabs
+        others = [(c["uid"], c) for c in all_cabs
                   if c["user_id"] != uid and not c.get("dead")]
+        others.sort(key=lambda x: x[1].get("level", 1), reverse=True)
         if not others:
             await callback.answer("Нет других живых кеббитов!", show_alert=True)
             return
@@ -822,8 +823,9 @@ async def callback_duel_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[1])
 
     all_cabs = await cabbit_service.get_all_cabbits()
-    others = [(c["user_id"], c) for c in all_cabs
+    others = [(c["uid"], c) for c in all_cabs
               if c["user_id"] != uid and not c.get("dead")]
+    others.sort(key=lambda x: x[1].get("level", 1), reverse=True)
     if not others:
         await callback.answer("Нет других живых кеббитов!", show_alert=True)
         return
@@ -842,7 +844,7 @@ async def callback_duel_page(callback: CallbackQuery):
 
 async def _show_knife_targets(callback: CallbackQuery, attacker_uid: int):
     all_cabs = await cabbit_service.get_all_cabbits()
-    others = [(c["user_id"], c) for c in all_cabs
+    others = [(c["uid"], c) for c in all_cabs
               if c["user_id"] != attacker_uid and not c.get("dead")]
     if not others:
         await callback.answer("Нет других живых кеббитов для атаки!", show_alert=True)
@@ -868,8 +870,11 @@ async def callback_kill(callback: CallbackQuery):
             await _edit_card(callback, cab)
         return
 
-    target_uid = int(target_uid)
-    result = await cabbit_service.kill_cabbit(attacker_uid, target_uid)
+    target_user_id = await cabbit_service.get_user_id_by_uid(int(target_uid))
+    if not target_user_id:
+        await callback.answer("Кеббит не найден!", show_alert=True)
+        return
+    result = await cabbit_service.kill_cabbit(attacker_uid, target_user_id)
     if not result.get("ok"):
         err = result.get("error", "")
         if err == "no_knife":
