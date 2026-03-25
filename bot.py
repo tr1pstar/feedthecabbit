@@ -11,7 +11,7 @@ from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN
 from db.engine import init_db
 
-from handlers import start, cabbit, combat, casino, quests, admin, promo
+from handlers import start, cabbit, combat, casino, quests, admin, promo, payment
 from tasks.reaction_game import router as reaction_router
 from tasks.hunger_checker import hunger_checker
 from tasks.box_notifier import box_notifier
@@ -36,6 +36,7 @@ async def main():
     dp.include_router(quests.router)
     dp.include_router(admin.router)
     dp.include_router(promo.router)
+    dp.include_router(payment.router)
     dp.include_router(reaction_router)
 
     await init_db()

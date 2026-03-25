@@ -4,7 +4,14 @@
       "Bash(git clone:*)",
       "Bash(git init:*)",
       "Bash(git remote:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(docker compose:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:help.send.tg)",
+      "WebFetch(domain:pypi.org)"
     ]
   }
 }
