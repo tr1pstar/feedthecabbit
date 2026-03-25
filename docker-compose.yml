@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cabbit
+      POSTGRES_PASSWORD: cabbit
+      POSTGRES_DB: cabbit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  bot:
+    build: .
+    depends_on:
+      - db
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      DATABASE_URL: postgresql+asyncpg://cabbit:cabbit@db:5432/cabbit
+      ADMIN_ID: ${ADMIN_ID}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
