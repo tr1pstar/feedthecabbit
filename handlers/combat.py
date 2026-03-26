@@ -26,6 +26,11 @@ def _move_kb(challenger_uid: int) -> InlineKeyboardMarkup:
 @router.callback_query(F.data.startswith("duel_send:"))
 async def callback_duel_send(callback: CallbackQuery):
     """Step 1: opponent selected → show stake selection."""
+    # TEMP: duels disabled for maintenance
+    if callback.data.split(":")[1] != "cancel":
+        await callback.answer("🔧 Дуэли временно отключены на техобслуживание!", show_alert=True)
+        return
+
     challenger = callback.from_user.id
     target_uid_str = callback.data.split(":")[1]
 
