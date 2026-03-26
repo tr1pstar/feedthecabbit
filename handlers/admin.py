@@ -752,6 +752,46 @@ async def cmd_seasoninfo(message: Message):
     )
 
 
+@router.message(Command("setref"))
+async def cmd_setref(message: Message):
+    """/setref <invited_user_id> <referrer_user_id>"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 3:
+        await message.answer("Использование: /setref invited_uid referrer_uid")
+        return
+
+    try:
+        invited_uid = int(args[1])
+        referrer_uid = int(args[2])
+    except ValueError:
+        await message.answer("❌ Оба параметра должны быть числами.")
+        return
+
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        invited = await cabbit_repo.get(s, invited_uid)
+        referrer = await cabbit_repo.get(s, referrer_uid)
+        if not invited:
+            await message.answer(f"❌ Кеббит {invited_uid} не найден.")
+            return
+        if not referrer:
+            await message.answer(f"❌ Кеббит {referrer_uid} не найден.")
+            return
+        invited.referred_by = referrer_uid
+        invited.referral_rewarded = False
+        await cabbit_repo.save(s, invited)
+
+    await message.answer(
+        f"✅ Реферал установлен: <b>{invited.name}</b> приглашён <b>{referrer.name}</b>",
+        parse_mode="HTML",
+    )
+
+
 @router.message(Command("newseason"))
 async def cmd_newseason(message: Message):
     """
