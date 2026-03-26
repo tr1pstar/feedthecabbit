@@ -158,42 +158,48 @@ async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
 
 async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
     from sqlalchemy import text
-    import json
+    import time as _time
+
+    player_key = str(player_id)
 
     async with get_session() as s:
-        # Atomic: read duel with lock, check and add move in one go
-        row = await s.execute(
+        # Single atomic UPDATE: add move only if player hasn't moved yet
+        # Returns the updated moves dict
+        result = await s.execute(
             text("""
-                SELECT target_id, stake, moves, status
-                FROM duels
+                UPDATE duels
+                SET moves = moves || jsonb_build_object(:pkey, :move)
                 WHERE challenger_id = :cid
-                FOR UPDATE
+                  AND status = 'active'
+                  AND NOT (moves ? :pkey)
+                RETURNING target_id, stake, moves
             """),
-            {"cid": challenger_id},
+            {"pkey": player_key, "move": move, "cid": challenger_id},
         )
-        duel_row = row.mappings().first()
-        if not duel_row or duel_row["status"] != "active":
-            return {"ok": False, "error": "no_active_duel"}
+        row = result.mappings().first()
 
-        target_id = duel_row["target_id"]
+        if not row:
+            # Either duel doesn't exist, not active, or already moved
+            # Check which case
+            check = await s.execute(
+                text("SELECT status, moves FROM duels WHERE challenger_id = :cid"),
+                {"cid": challenger_id},
+            )
+            check_row = check.mappings().first()
+            if not check_row or check_row["status"] != "active":
+                return {"ok": False, "error": "no_active_duel"}
+            if player_key in (check_row["moves"] or {}):
+                return {"ok": False, "error": "already_moved"}
+            return {"ok": False, "error": "not_participant"}
+
+        target_id = row["target_id"]
         if player_id not in (challenger_id, target_id):
             return {"ok": False, "error": "not_participant"}
 
-        moves = dict(duel_row["moves"] or {})
-        player_key = str(player_id)
-        if player_key in moves:
-            return {"ok": False, "error": "already_moved"}
-
-        # Atomic update moves in DB
-        moves[player_key] = move
-        await s.execute(
-            text("UPDATE duels SET moves = :moves WHERE challenger_id = :cid"),
-            {"moves": json.dumps(moves), "cid": challenger_id},
-        )
-        await s.flush()
+        moves = dict(row["moves"])
+        stake = row["stake"]
 
         if len(moves) < 2:
-            # Commit immediately so other player sees the move
             await s.commit()
             return {"ok": True, "waiting": True, "resolved": False, "move": move}
 
@@ -209,12 +215,10 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         outcome = resolve_duel_move(c_move, t_move)
 
         if outcome == "tie":
-            import time as _time
             await s.execute(
                 text("UPDATE duels SET moves = '{}', round_started_at = :ts WHERE challenger_id = :cid"),
                 {"ts": int(_time.time()), "cid": challenger_id},
             )
-            await s.flush()
             return {
                 "ok": True, "waiting": False, "resolved": True,
                 "result": {
