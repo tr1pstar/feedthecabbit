@@ -172,19 +172,25 @@ async def callback_duel_accept(callback: CallbackQuery):
     t_name = result["target_name"]
     stake = result["stake"]
 
-    text = (
+    # Only challenger gets move buttons first
+    c_text = (
         f"⚔️ <b>{c_name} vs {t_name}</b>\n\n"
-        f"Ставка: <b>{stake} XP</b> | Первый победивший забирает всё\n\n"
-        f"Выбери ход:"
+        f"Ставка: <b>{stake} XP</b>\n\n"
+        f"Ты ходишь первым! Выбери ход:"
+    )
+    t_text = (
+        f"⚔️ <b>{c_name} vs {t_name}</b>\n\n"
+        f"Ставка: <b>{stake} XP</b>\n\n"
+        f"⏳ Ожидаем ход противника..."
     )
     kb = _move_kb(challenger)
     try:
-        await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.edit_text(text=t_text, parse_mode="HTML")
     except Exception:
         pass
     try:
         await callback.bot.send_message(
-            chat_id=challenger, text=text,
+            chat_id=challenger, text=c_text,
             parse_mode="HTML", reply_markup=kb,
         )
     except Exception as e:
@@ -236,10 +242,24 @@ async def callback_duel_move(callback: CallbackQuery):
 
     await callback.answer()
     if result.get("waiting"):
+        # First player made move — hide buttons, send buttons to other player
+        target_id = result.get("target_id")
         await callback.message.edit_text(
-            text=f"✅ Ход: <b>{EMOJI.get(move, '')} {move}</b>\n\nОжидаем противника...",
+            text=f"✅ Ход принят!\n\n⏳ Ожидаем ход противника...",
             parse_mode="HTML",
         )
+        # Send move buttons to the OTHER player
+        other_uid = target_id if uid == challenger else challenger
+        kb = _move_kb(challenger)
+        try:
+            await callback.bot.send_message(
+                chat_id=other_uid,
+                text="⚔️ <b>Твой ход!</b> Выбери:",
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+        except Exception as e:
+            logger.warning(f"duel send buttons to {other_uid}: {e}")
         return
 
     # Resolved
@@ -250,28 +270,40 @@ async def callback_duel_move(callback: CallbackQuery):
     t_name = res["target_name"]
 
     if res.get("tie"):
-        # Tie — replay
-        tie_text = (
+        # Tie — replay, challenger goes first again
+        tie_text_current = (
             f"⚔️ <b>Дуэль:</b>\n"
             f"🐰 {c_name}: {EMOJI.get(c_move, '')} {c_move}\n"
             f"🐰 {t_name}: {EMOJI.get(t_move, '')} {t_move}\n\n"
-            f"🤝 Ничья! Переигрываем — выбери ход:"
+            f"🤝 Ничья! Переигрываем..."
+        )
+        tie_text_challenger = (
+            f"⚔️ <b>Дуэль:</b>\n"
+            f"🐰 {c_name}: {EMOJI.get(c_move, '')} {c_move}\n"
+            f"🐰 {t_name}: {EMOJI.get(t_move, '')} {t_move}\n\n"
+            f"🤝 Ничья! Ты ходишь первым — выбери ход:"
         )
         kb = _move_kb(challenger)
-        # Send to other participant
-        target_uid = res.get("target_uid")
-        if not target_uid:
-            for send_uid in (challenger, uid):
-                if send_uid == callback.from_user.id:
-                    continue
-                try:
-                    await callback.bot.send_message(
-                        chat_id=send_uid, text=tie_text,
-                        parse_mode="HTML", reply_markup=kb,
-                    )
-                except Exception as e:
-                    logger.warning(f"tie notify {send_uid}: {e}")
-        await callback.message.edit_text(text=tie_text, parse_mode="HTML", reply_markup=kb)
+        await callback.message.edit_text(text=tie_text_current, parse_mode="HTML")
+        # Send buttons only to challenger
+        try:
+            await callback.bot.send_message(
+                chat_id=challenger, text=tie_text_challenger,
+                parse_mode="HTML", reply_markup=kb,
+            )
+        except Exception as e:
+            logger.warning(f"tie notify challenger {challenger}: {e}")
+        # Notify target (no buttons)
+        target_uid = res.get("target_id", 0)
+        if target_uid and target_uid != challenger:
+            try:
+                await callback.bot.send_message(
+                    chat_id=target_uid,
+                    text=tie_text_current + "\n⏳ Ожидаем ход противника...",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
         return
 
     if res.get("cancelled"):

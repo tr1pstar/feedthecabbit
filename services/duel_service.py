@@ -192,7 +192,7 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         await s.commit()
 
         if len(moves) < 2:
-            return {"ok": True, "waiting": True, "resolved": False, "move": move}
+            return {"ok": True, "waiting": True, "resolved": False, "move": move, "target_id": target_id}
 
         # Both moves in — resolve
         c_move = moves[str(challenger_id)]
@@ -216,6 +216,7 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
                 "result": {
                     "tie": True, "c_move": c_move, "t_move": t_move,
                     "challenger_name": c_name, "target_name": t_name,
+                    "target_id": target_id,
                 },
             }
 
