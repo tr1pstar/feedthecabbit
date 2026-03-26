@@ -724,6 +724,15 @@ async def create_cabbit_with_referrer(user_id: int, name: str, referrer_uid: int
         return _cabbit_to_dict(cab)
 
 
+async def get_referrals(user_id: int) -> list[dict]:
+    async with get_session() as s:
+        refs = await cabbit_repo.get_referrals(s, user_id)
+        return [
+            {"name": r.name, "level": r.level, "rewarded": r.referral_rewarded}
+            for r in refs
+        ]
+
+
 AUTOCOLLECT_BONUS = 6 * 3600  # 6 hours per referral
 
 

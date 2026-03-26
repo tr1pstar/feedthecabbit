@@ -107,6 +107,13 @@ async def get_others_alive(session: AsyncSession, exclude_uid: int) -> list[Cabb
     )
     return list(r.scalars().all())
 
+async def get_referrals(session: AsyncSession, user_id: int) -> list[Cabbit]:
+    r = await session.execute(
+        select(Cabbit).where(Cabbit.referred_by == user_id)
+    )
+    return list(r.scalars().all())
+
+
 async def get_others_with_xp(session: AsyncSession, exclude_uid: int) -> list[Cabbit]:
     r = await session.execute(
         select(Cabbit).where(Cabbit.dead == False, Cabbit.user_id != exclude_uid, Cabbit.xp > 0)

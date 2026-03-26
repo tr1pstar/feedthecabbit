@@ -311,15 +311,24 @@ async def callback_cabbit(callback: CallbackQuery):
         ac_text = ""
         if autocollect > now:
             left = autocollect - now
-            ac_text = f"\n\n📦 Автосбор активен: <b>{left // 3600}ч {(left % 3600) // 60}м</b>"
+            ac_text = f"\n📦 Автосбор активен: <b>{left // 3600}ч {(left % 3600) // 60}м</b>"
+
+        refs = await cabbit_service.get_referrals(uid)
+        if refs:
+            ref_lines = []
+            for r in refs:
+                status = "✅" if r["rewarded"] else f"⏳ ур. {r['level']}/5"
+                ref_lines.append(f"  🐰 <b>{r['name']}</b> — {status}")
+            refs_text = f"\n\n👥 Твои рефералы ({len(refs)}):\n" + "\n".join(ref_lines)
+        else:
+            refs_text = "\n\n👥 Пока нет рефералов"
+
         text = (
             f"👥 <b>Пригласи друга!</b>\n\n"
-            f"Отправь ссылку другу — когда его кеббит достигнет "
-            f"<b>5 уровня</b>, ты получишь:\n\n"
-            f"📦 <b>Автосбор коробок на 6 часов!</b>\n"
-            f"Коробки будут открываться сами, время от нескольких "
-            f"рефералов суммируется.\n\n"
-            f"🔗 Твоя ссылка:\n<code>{ref_link}</code>{ac_text}"
+            f"Когда друг достигнет <b>5 уровня</b> — "
+            f"📦 автосбор коробок на 6ч!\n\n"
+            f"🔗 Ссылка:\n<code>{ref_link}</code>"
+            f"{ac_text}{refs_text}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
