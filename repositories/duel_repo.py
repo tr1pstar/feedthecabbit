@@ -7,6 +7,12 @@ from db.models import Duel
 async def get(session: AsyncSession, challenger_id: int) -> Duel | None:
     return await session.get(Duel, challenger_id)
 
+async def get_for_update(session: AsyncSession, challenger_id: int) -> Duel | None:
+    r = await session.execute(
+        select(Duel).where(Duel.challenger_id == challenger_id).with_for_update()
+    )
+    return r.scalar_one_or_none()
+
 
 async def create(session: AsyncSession, challenger_id: int, target_id: int, stake: int) -> Duel:
     duel = Duel(

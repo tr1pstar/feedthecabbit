@@ -158,7 +158,7 @@ async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
 
 async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
     async with get_session() as s:
-        duel = await duel_repo.get(s, challenger_id)
+        duel = await duel_repo.get_for_update(s, challenger_id)
         if not duel or duel.status != "active":
             return {"ok": False, "error": "no_active_duel"}
 
