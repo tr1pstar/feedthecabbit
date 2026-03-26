@@ -94,10 +94,12 @@ async def claim_quest(user_id: int, quest_index: int) -> dict:
         if task["progress"] < task["target"]:
             return {"ok": False, "error": "not_completed"}
 
+        from sqlalchemy.orm.attributes import flag_modified
         task["claimed"] = True
         reward = task["reward"]
         quest_data["tasks"] = tasks
         cab.quests = quest_data
+        flag_modified(cab, "quests")
 
         leveled, new_level = _apply_xp_to_cab(cab, reward)
         stats = dict(cab.stats or {})
