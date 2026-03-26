@@ -14,19 +14,6 @@ from config import REQUIRED_CHANNEL
 _verified: set[int] = set()
 
 
-class GroupReplyMiddleware(BaseMiddleware):
-    """In group chats, monkey-patch message.answer to use message.reply."""
-    async def __call__(
-        self,
-        handler: Callable[[Update, Dict[str, Any]], Awaitable[Any]],
-        event: Update,
-        data: Dict[str, Any],
-    ) -> Any:
-        if isinstance(event, Message) and event.chat.type != "private":
-            event.answer = event.reply
-        return await handler(event, data)
-
-
 class SubscriptionMiddleware(BaseMiddleware):
     async def __call__(
         self,

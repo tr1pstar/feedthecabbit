@@ -11,7 +11,7 @@ from aiogram.types import ChatMemberUpdated
 
 from config import BOT_TOKEN, REQUIRED_CHANNEL
 from db.engine import init_db
-from core.middleware import SubscriptionMiddleware, GroupReplyMiddleware, unverify_user
+from core.middleware import SubscriptionMiddleware, unverify_user
 
 from handlers import start, cabbit, combat, casino, quests, admin, promo, payment, feedback
 from tasks.hunger_checker import hunger_checker
@@ -30,7 +30,6 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher()
 
-    dp.message.middleware(GroupReplyMiddleware())
     dp.message.middleware(SubscriptionMiddleware())
     dp.callback_query.middleware(SubscriptionMiddleware())
 

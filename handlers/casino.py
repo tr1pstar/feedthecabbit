@@ -16,12 +16,12 @@ async def cmd_casino(message: Message):
     cab = await cabbit_service.get_cabbit(uid)
 
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await message.reply("❌ Сначала создай кеббита через /cabbit")
         return
 
     xp = cab.get("xp", 0)
     if xp < 1:
-        await message.answer("❌ Недостаточно XP для казино!")
+        await message.reply("❌ Недостаточно XP для казино!")
         return
 
     args = (message.text or "").split()[1:]

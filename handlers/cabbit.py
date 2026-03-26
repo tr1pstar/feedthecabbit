@@ -54,6 +54,22 @@ class RenamingState(StatesGroup):
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _is_group(msg: Message) -> bool:
+    return msg.chat.type != "private"
+
+
+async def _reply(msg: Message, *args, **kwargs):
+    if _is_group(msg):
+        return await msg.reply(*args, **kwargs)
+    return await msg.answer(*args, **kwargs)
+
+
+async def _reply_photo(msg: Message, *args, **kwargs):
+    if _is_group(msg):
+        return await msg.reply_photo(*args, **kwargs)
+    return await msg.answer_photo(*args, **kwargs)
+
+
 async def _send_cabbit_card(msg: Message, cab: dict):
     """Send cabbit card with skin photo → default photo → text fallback."""
     status = cabbit_status(cab)
@@ -74,8 +90,8 @@ async def _send_cabbit_card(msg: Message, cab: dict):
     # Try skin photo
     if skin_file_id:
         try:
-            await msg.answer_photo(photo=skin_file_id, caption=status,
-                                   parse_mode="HTML", reply_markup=kb)
+            await _reply_photo(msg, photo=skin_file_id, caption=status,
+                               parse_mode="HTML", reply_markup=kb)
             return
         except Exception:
             pass
@@ -83,13 +99,13 @@ async def _send_cabbit_card(msg: Message, cab: dict):
     # Fallback to default photo
     if os.path.exists(CABBIT_PHOTO):
         try:
-            await msg.answer_photo(photo=FSInputFile(CABBIT_PHOTO), caption=status,
-                                   parse_mode="HTML", reply_markup=kb)
+            await _reply_photo(msg, photo=FSInputFile(CABBIT_PHOTO), caption=status,
+                               parse_mode="HTML", reply_markup=kb)
             return
         except Exception:
             pass
 
-    await msg.answer(status, parse_mode="HTML", reply_markup=kb)
+    await _reply(msg, status, parse_mode="HTML", reply_markup=kb)
 
 
 async def _edit_card(callback: CallbackQuery, cab: dict, text: str = None):
@@ -111,19 +127,19 @@ async def _send_profile(msg: Message, cab: dict):
     skin_file_id = await cabbit_service.get_skin_file_id(cab)
     if skin_file_id:
         try:
-            await msg.answer_photo(photo=skin_file_id, caption=status,
-                                   parse_mode="HTML")
+            await _reply_photo(msg, photo=skin_file_id, caption=status,
+                               parse_mode="HTML")
             return
         except Exception:
             pass
     if os.path.exists(CABBIT_PHOTO):
         try:
-            await msg.answer_photo(photo=FSInputFile(CABBIT_PHOTO), caption=status,
-                                   parse_mode="HTML")
+            await _reply_photo(msg, photo=FSInputFile(CABBIT_PHOTO), caption=status,
+                               parse_mode="HTML")
             return
         except Exception:
             pass
-    await msg.answer(status, parse_mode="HTML")
+    await _reply(msg, status, parse_mode="HTML")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -139,12 +155,12 @@ async def cmd_cabbit(message: Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Принимаю", callback_data="rules:accept")],
         ])
-        await message.answer(RULES_TEXT, parse_mode="HTML", reply_markup=kb)
+        await _reply(message,RULES_TEXT, parse_mode="HTML", reply_markup=kb)
         return
 
     if cab.get("dead"):
         name = cab.get("name", "Кеббит")
-        await message.answer(
+        await _reply(message,
             f"💀 <b>{name} умер от голода...</b>\n\n"
             f"Ты не кормил его 24 часа. Кеббит ушёл в лучший мир.",
             parse_mode="HTML",
@@ -153,17 +169,17 @@ async def cmd_cabbit(message: Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Принимаю", callback_data="rules:accept")],
         ])
-        await message.answer(RULES_TEXT, parse_mode="HTML", reply_markup=kb)
+        await _reply(message,RULES_TEXT, parse_mode="HTML", reply_markup=kb)
         return
 
     if not cab.get("rules_accepted"):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Принимаю", callback_data="rules:accept")],
         ])
-        await message.answer(RULES_TEXT, parse_mode="HTML", reply_markup=kb)
+        await _reply(message,RULES_TEXT, parse_mode="HTML", reply_markup=kb)
         return
 
-    await message.answer("🐰", reply_markup=get_reply_keyboard(message.chat.type))
+    await _reply(message,"🐰", reply_markup=get_reply_keyboard(message.chat.type))
     await _send_cabbit_card(message, cab)
 
 
@@ -201,11 +217,11 @@ async def receive_name(message: Message, state: FSMContext):
     name = (message.text or "").strip()[:20].replace("<", "").replace(">", "").replace("&", "")
 
     if not name:
-        await message.answer("Имя не может быть пустым. Напиши /cabbit чтобы начать заново.")
+        await _reply(message,"Имя не может быть пустым. Напиши /cabbit чтобы начать заново.")
         return
 
     cab = await cabbit_service.create_cabbit(uid, name)
-    await message.answer(
+    await _reply(message,
         f"🎉 Познакомьтесь — <b>{escape(name)}</b>!\n\n"
         f"Каждые 30 минут появляется коробка с едой — не забывай кормить!\n"
         f"⚠️ Если не кормить 24 часа — кеббит умрёт.\n\n"
@@ -219,7 +235,7 @@ async def receive_name(message: Message, state: FSMContext):
 @router.message(Command("cancel"))
 async def cancel(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("Отменено.")
+    await _reply(message,"Отменено.")
 
 
 ACH_PAGE_SIZE = 7
@@ -960,7 +976,7 @@ async def casino_custom_bet(message: Message, state: FSMContext):
     try:
         bet = int(message.text.strip())
     except ValueError:
-        await message.answer("❌ Введи число. Попробуй /casino")
+        await _reply(message,"❌ Введи число. Попробуй /casino")
         return
     uid = message.from_user.id
     await _play_casino_and_show(message, uid, bet)
@@ -1102,14 +1118,14 @@ async def duel_search_query(message: Message, state: FSMContext):
               and query in c["name"].lower()]
 
     if not others:
-        await message.answer(
+        await _reply(message,
             f"❌ Никого не найдено по запросу «{message.text.strip()}».\n"
             "Попробуй через ⚔️ Бой → 🥊 Дуэль.")
         return
 
     others.sort(key=lambda x: x[1].get("level", 1), reverse=True)
     kb = paginated_target_buttons(others, 0, "duel_send", "duel_send:cancel")
-    await message.answer(
+    await _reply(message,
         f"🔍 Результаты по «{message.text.strip()}»:",
         reply_markup=kb)
 
@@ -1386,17 +1402,17 @@ async def cmd_knife(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ У тебя нет живого кеббита.")
+        await _reply(message,"❌ У тебя нет живого кеббита.")
         return
     if not cab.get("has_knife"):
-        await message.answer("🔪 У тебя нет ножа.")
+        await _reply(message,"🔪 У тебя нет ножа.")
         return
 
     all_cabs = await cabbit_service.get_all_cabbits()
     others = [(c["user_id"], c) for c in all_cabs
               if c["user_id"] != uid and not c.get("dead")]
     if not others:
-        await message.answer("Нет других живых кеббитов для атаки!")
+        await _reply(message,"Нет других живых кеббитов для атаки!")
         return
 
     buttons = [
@@ -1407,7 +1423,7 @@ async def cmd_knife(message: Message):
         for u, c in others
     ]
     buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="kill:cancel")])
-    await message.answer(
+    await _reply(message,
         "🔪 <b>Выбери жертву:</b>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -1419,17 +1435,17 @@ async def cmd_raid(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await _reply(message,"❌ Сначала создай кеббита через /cabbit")
         return
 
     now = int(time.time())
     if now < cab.get("last_raid", 0) + RAID_COOLDOWN:
         left = cab.get("last_raid", 0) + RAID_COOLDOWN - now
-        await message.answer(
+        await _reply(message,
             f"⏳ Рейд доступен через {left // 60}м {left % 60}с")
         return
 
-    await message.answer(
+    await _reply(message,
         "🏴‍☠️ <b>Рейд</b>\n\n"
         "40% — украсть 10% XP случайного игрока (макс 500)\n"
         "60% — потеряешь 5% своего XP\n"
@@ -1448,22 +1464,22 @@ async def cmd_prestige(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await _reply(message,"❌ Сначала создай кеббита через /cabbit")
         return
 
     if cab.get("level", 1) < 30:
-        await message.answer(
+        await _reply(message,
             f"❌ Нужен 30 уровень для престижа. Сейчас: {cab.get('level', 1)}")
         return
 
     result = await cabbit_service.do_prestige(uid)
     if not result.get("ok"):
-        await message.answer("❌ Ошибка.")
+        await _reply(message,"❌ Ошибка.")
         return
 
     stars = result["stars"]
     cab = result["cabbit"]
-    await message.answer(
+    await _reply(message,
         f"{'━' * 20}\n"
         f"🌟 <b>ПРЕСТИЖ {stars}!</b>\n"
         f"{'━' * 20}\n\n"
@@ -1481,7 +1497,7 @@ async def cmd_leaderboard(message: Message):
     all_cabs = await cabbit_service.get_all_cabbits()
     alive = [c for c in all_cabs if not c.get("dead")]
     if not alive:
-        await message.answer("🏆 Пока нет живых кеббитов.")
+        await _reply(message,"🏆 Пока нет живых кеббитов.")
         return
 
     alive.sort(key=lambda x: (x.get("prestige_stars", 0), x["level"], x["xp"]),
@@ -1522,7 +1538,7 @@ async def cmd_leaderboard(message: Message):
 
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    await _reply(message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("season_top:"))
@@ -1613,7 +1629,7 @@ async def cmd_profile(message: Message):
     if not query:
         cab = await cabbit_service.get_cabbit(uid)
         if not cab or cab.get("dead"):
-            await message.answer("❌ У тебя нет живого кеббита.")
+            await _reply(message,"❌ У тебя нет живого кеббита.")
             return
         await _send_profile(message, cab)
         return
@@ -1640,10 +1656,10 @@ async def cmd_profile(message: Message):
                 break
 
     if not target_cab:
-        await message.answer("❌ Кеббит не найден. Укажи имя или user_id.")
+        await _reply(message,"❌ Кеббит не найден. Укажи имя или user_id.")
         return
     if target_cab.get("dead"):
-        await message.answer(
+        await _reply(message,
             f"💀 <b>{target_cab.get('name', '?')}</b> мёртв.", parse_mode="HTML")
         return
 
@@ -1659,12 +1675,12 @@ async def cmd_skins(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await _reply(message,"❌ Сначала создай кеббита через /cabbit")
         return
 
     result = await skin_service.get_user_skins(uid)
     if not result.get("ok") or not result.get("skins"):
-        await message.answer(
+        await _reply(message,
             "🎨 У тебя пока нет скинов.\n\n"
             "Скины можно получить из коробок, за уровни или купить в /shop"
         )
@@ -1687,7 +1703,7 @@ async def cmd_skins(message: Message):
         )])
 
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
-    await message.answer(
+    await _reply(message,
         "\n".join(lines) + "\n\nВыбери скин:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -1732,12 +1748,12 @@ async def cmd_shop(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await _reply(message,"❌ Сначала создай кеббита через /cabbit")
         return
 
     result = await skin_service.get_capsule_shop(uid)
     if not result.get("ok"):
-        await message.answer("❌ Ошибка.")
+        await _reply(message,"❌ Ошибка.")
         return
 
     capsules = result.get("capsules", [])
@@ -1773,7 +1789,7 @@ async def cmd_shop(message: Message):
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    await _reply(message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("capsule_buy:"))
@@ -1919,12 +1935,12 @@ async def cmd_rename(message: Message):
     uid = message.from_user.id
     cab = await cabbit_service.get_cabbit(uid)
     if not cab or cab.get("dead"):
-        await message.answer("❌ Сначала создай кеббита через /cabbit")
+        await _reply(message,"❌ Сначала создай кеббита через /cabbit")
         return
 
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2 or not args[1].strip():
-        await message.answer(
+        await _reply(message,
             f"✏️ <b>Смена имени</b>\n\n"
             f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
             f"Баланс: <b>{cab.get('coins', 0)} 🪙</b>\n\n"
@@ -1935,25 +1951,25 @@ async def cmd_rename(message: Message):
 
     new_name = args[1].strip()
     if len(new_name) > 20:
-        await message.answer("❌ Имя слишком длинное! Максимум 20 символов.")
+        await _reply(message,"❌ Имя слишком длинное! Максимум 20 символов.")
         return
 
     result = await cabbit_service.rename_cabbit(uid, new_name)
     if not result.get("ok"):
         err = result.get("error", "")
         if err == "insufficient_coins":
-            await message.answer(
+            await _reply(message,
                 f"❌ Не хватает монет!\n"
                 f"Нужно: <b>{RENAME_COST} 🪙</b>\n"
                 f"У тебя: <b>{result.get('coins', 0)} 🪙</b>",
                 parse_mode="HTML")
         elif err == "invalid_name":
-            await message.answer("❌ Недопустимое имя.")
+            await _reply(message,"❌ Недопустимое имя.")
         else:
-            await message.answer("❌ Ошибка.")
+            await _reply(message,"❌ Ошибка.")
         return
 
-    await message.answer(
+    await _reply(message,
         f"✅ Имя изменено!\n\n"
         f"<b>{result['old_name']}</b> → <b>{result['new_name']}</b>\n"
         f"🪙 -{RENAME_COST} монет (осталось: {result['coins_left']})",
@@ -1973,25 +1989,25 @@ async def handle_reply_keyboard(message: Message):
     if text == "🐰 Кеббит":
         cab = await cabbit_service.get_cabbit(uid)
         if not cab or cab.get("dead"):
-            await message.answer("❌ Нет кеббита. Используй /cabbit")
+            await _reply(message,"❌ Нет кеббита. Используй /cabbit")
             return
         await _send_cabbit_card(message, cab)
 
     elif text == "🎰 Казино":
         cab = await cabbit_service.get_cabbit(uid)
         if not cab or cab.get("dead"):
-            await message.answer("❌ Нет кеббита. /cabbit")
+            await _reply(message,"❌ Нет кеббита. /cabbit")
             return
         xp = cab.get("xp", 0)
         if xp < 1:
-            await message.answer("❌ Недостаточно XP для казино!")
+            await _reply(message,"❌ Недостаточно XP для казино!")
             return
         await _show_casino_menu(message, xp)
 
     elif text == "⚔️ Бой":
         cab = await cabbit_service.get_cabbit(uid)
         if not cab or cab.get("dead"):
-            await message.answer("❌ Нет кеббита. /cabbit")
+            await _reply(message,"❌ Нет кеббита. /cabbit")
             return
         now = int(time.time())
         buttons = []
@@ -2010,7 +2026,7 @@ async def handle_reply_keyboard(message: Message):
             buttons.append([InlineKeyboardButton(
                 text="🥊 Дуэль (нет жетонов)", callback_data="cabbit:refresh")])
         buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
-        await message.answer(
+        await _reply(message,
             "⚔️ <b>Бой</b>\n\n🏴‍☠️ Рейд — украсть XP (40% шанс)\n🥊 Дуэль — камень-ножницы-бумага",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -2027,7 +2043,7 @@ async def handle_reply_keyboard(message: Message):
         await cmd_leaderboard(message)
 
     elif text == "📖 Вики":
-        await message.answer(
+        await _reply(message,
             "📖 <b>Вики Кеббита</b>\n\n"
             "Выбери раздел:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -2048,7 +2064,7 @@ async def handle_reply_keyboard(message: Message):
 
     elif text == "📬 Обратная связь":
         from handlers.feedback import FEEDBACK_TEXT, FEEDBACK_KB
-        await message.answer(FEEDBACK_TEXT, reply_markup=FEEDBACK_KB)
+        await _reply(message,FEEDBACK_TEXT, reply_markup=FEEDBACK_KB)
 
 
 _WIKI_BACK_BTN = [InlineKeyboardButton(text="◀️ Разделы", callback_data="wiki:menu"), InlineKeyboardButton(text="🐰 Кеббит", callback_data="cabbit:refresh")]

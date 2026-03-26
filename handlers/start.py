@@ -24,7 +24,7 @@ async def cmd_start(message: Message) -> None:
         except (ValueError, Exception):
             pass
 
-    await message.answer(
+    await message.reply(
         "🐰 <b>Кеббит — виртуальный питомец!</b>\n\n"
         "/cabbit — твой питомец\n"
         "/helpcabbit — все команды",
@@ -40,7 +40,7 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("helpcabbit"))
 async def cmd_helpcabbit(message: Message) -> None:
-    await message.answer(
+    await message.reply(
         "🐰 <b>Кеббит — команды:</b>\n\n"
         "  /cabbit — твой питомец\n"
         "  /casino СТАВКА — слот-машина\n"
