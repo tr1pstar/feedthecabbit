@@ -53,7 +53,15 @@ async def init_db():
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referred_by BIGINT"))
         if "referral_rewarded" not in cols:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referral_rewarded BOOLEAN DEFAULT false"))
-        if "autocollect_until" not in cols:
+        # Re-read cols to check for autocollect_until
+        cols2 = await conn.run_sync(
+            lambda sync_conn: [
+                r[0] for r in sync_conn.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='cabbits'")
+                )
+            ]
+        )
+        if "autocollect_until" not in cols2:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN autocollect_until INTEGER DEFAULT 0"))
 
 @asynccontextmanager
