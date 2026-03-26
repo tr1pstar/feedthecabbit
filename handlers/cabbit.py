@@ -218,7 +218,7 @@ async def cancel(message: Message, state: FSMContext):
     await message.answer("Отменено.")
 
 
-ACH_PAGE_SIZE = 10
+ACH_PAGE_SIZE = 7
 
 
 async def _show_achievements_page(callback, achievements, page, earned_count, total_count):
@@ -232,7 +232,7 @@ async def _show_achievements_page(callback, achievements, page, earned_count, to
         if a["earned"]:
             lines.append(f"✅ {a['emoji']} <b>{a['name']}</b> — {a['desc']}")
         else:
-            lines.append(f"⬜ {a['emoji']} {a['name']} ({a['progress']}/{a['need']})")
+            lines.append(f"⬜ {a['emoji']} {a['name']} — {a['desc']} ({a['progress']}/{a['need']})")
 
     buttons = []
     nav = []
