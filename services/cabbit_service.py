@@ -430,6 +430,12 @@ async def use_item(user_id: int, item: str) -> dict:
                 await cabbit_repo.save(s, cab)
                 return {"ok": False, "error": "no_targets"}
 
+            others = [o for o in others if o.user_id != user_id]
+            if not others:
+                inv[item] += 1
+                cab.inventory = inv
+                await cabbit_repo.save(s, cab)
+                return {"ok": False, "error": "no_targets"}
             target = random.choice(others)
             stolen = random.randint(100, 300)
             stolen = min(stolen, target.xp)

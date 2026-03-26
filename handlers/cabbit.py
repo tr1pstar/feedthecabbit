@@ -163,7 +163,7 @@ async def cmd_cabbit(message: Message):
         await message.answer(RULES_TEXT, parse_mode="HTML", reply_markup=kb)
         return
 
-    await message.answer("🐰", reply_markup=get_reply_keyboard())
+    await message.answer("🐰", reply_markup=get_reply_keyboard(message.chat.type))
     await _send_cabbit_card(message, cab)
 
 
@@ -211,7 +211,7 @@ async def receive_name(message: Message, state: FSMContext):
         f"⚠️ Если не кормить 24 часа — кеббит умрёт.\n\n"
         f"Новые команды: /casino, /raid, /quests, /achievements",
         parse_mode="HTML",
-        reply_markup=get_reply_keyboard(),
+        reply_markup=get_reply_keyboard(message.chat.type),
     )
     await _send_cabbit_card(message, cab)
 

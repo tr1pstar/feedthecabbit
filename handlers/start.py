@@ -29,7 +29,7 @@ async def cmd_start(message: Message) -> None:
         "/cabbit — твой питомец\n"
         "/helpcabbit — все команды",
         parse_mode="HTML",
-        reply_markup=get_reply_keyboard(),
+        reply_markup=get_reply_keyboard(message.chat.type),
     )
 
 
@@ -57,7 +57,7 @@ async def cmd_helpcabbit(message: Message) -> None:
         "  /profile — профиль\n"
         "  📬 Обратная связь — баги и скины\n",
         parse_mode="HTML",
-        reply_markup=get_reply_keyboard(),
+        reply_markup=get_reply_keyboard(message.chat.type),
     )
 
 

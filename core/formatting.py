@@ -13,15 +13,18 @@ def escape(text: str) -> str:
     return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def get_reply_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🐰 Кеббит"), KeyboardButton(text="🎰 Казино"), KeyboardButton(text="⚔️ Бой")],
-            [KeyboardButton(text="📋 Квесты"), KeyboardButton(text="🏪 Магазин"), KeyboardButton(text="📊 Топ")],
-            [KeyboardButton(text="📖 Вики"), KeyboardButton(text="📬 Обратная связь")],
-        ],
-        resize_keyboard=True,
-    )
+_reply_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🐰 Кеббит"), KeyboardButton(text="🎰 Казино"), KeyboardButton(text="⚔️ Бой")],
+        [KeyboardButton(text="📋 Квесты"), KeyboardButton(text="🏪 Магазин"), KeyboardButton(text="📊 Топ")],
+        [KeyboardButton(text="📖 Вики"), KeyboardButton(text="📬 Обратная связь")],
+    ],
+    resize_keyboard=True,
+)
+
+
+def get_reply_keyboard(chat_type: str = "private") -> ReplyKeyboardMarkup | None:
+    return _reply_kb if chat_type == "private" else None
 
 
 def hunger_bar(last_fed: int, sick: bool, sick_until: int) -> str:
