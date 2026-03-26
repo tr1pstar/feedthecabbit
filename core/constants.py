@@ -95,10 +95,10 @@ RARITY_ORDER = {
 
 # Capsule shop: rarity → price in coins
 CAPSULE_PRICES = {
-    "common":    100,
-    "rare":      300,
+    "common":    250,
+    "rare":      500,
     "epic":      800,
-    "legendary": 2000,
+    "legendary": 1250,
 }
 
 CAPSULE_NAMES = {

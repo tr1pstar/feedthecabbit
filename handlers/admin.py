@@ -536,9 +536,8 @@ async def handle_addskin_photo(message: Message, state: FSMContext):
         f"ID: <code>{skin_id}</code>\n"
         f"Название: {r_em} <b>{disp_name}</b>\n"
         f"Редкость: {rarity}\n\n"
-        f"Настрой параметры:\n"
-        f"/skindrop {skin_id} 1.5  — шанс из коробки\n"
-        f"/skinprice {skin_id} 500 — цена в магазине",
+        f"Настрой шанс дропа из коробки:\n"
+        f"/skindrop {skin_id} 1.5",
         parse_mode="HTML",
     )
 
@@ -609,42 +608,6 @@ async def cmd_skinlevel(message: Message):
     await message.answer(
         f"✅ Вес <code>{skin_id}</code> за уровни: <b>{weight}</b>",
         parse_mode="HTML")
-
-
-@router.message(Command("skinprice"))
-async def cmd_skinprice(message: Message):
-    """/skinprice <id> <price>  (0 = remove from shop)"""
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Только администратор.")
-        return
-
-    args = (message.text or "").split()
-    if len(args) < 3:
-        await message.answer(
-            "Использование: /skinprice <id> <цена>\n0 = убрать из магазина")
-        return
-
-    skin_id = args[1]
-    try:
-        price = int(args[2])
-    except ValueError:
-        await message.answer("Цена должна быть целым числом.")
-        return
-
-    result = await skin_service.admin_set_shop_price(skin_id, price)
-    if not result.get("ok"):
-        await message.answer(
-            f"❌ Скин <code>{skin_id}</code> не найден.", parse_mode="HTML")
-        return
-
-    actual = result.get("shop_price")
-    if actual:
-        await message.answer(
-            f"✅ <code>{skin_id}</code> в магазине за <b>{actual} 🪙</b>",
-            parse_mode="HTML")
-    else:
-        await message.answer(
-            f"✅ <code>{skin_id}</code> убран из магазина.", parse_mode="HTML")
 
 
 @router.message(Command("removeskin"))
