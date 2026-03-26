@@ -752,6 +752,42 @@ async def cmd_seasoninfo(message: Message):
     )
 
 
+@router.message(Command("giveautocollect"))
+async def cmd_giveautocollect(message: Message):
+    """/giveautocollect <user_id> <hours>"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 3:
+        await message.answer("Использование: /giveautocollect user_id часы")
+        return
+
+    try:
+        target_uid = int(args[1])
+        hours = int(args[2])
+    except ValueError:
+        await message.answer("❌ user_id и часы должны быть числами.")
+        return
+
+    import time
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, target_uid)
+        if not cab:
+            await message.answer(f"❌ Кеббит {target_uid} не найден.")
+            return
+        now = int(time.time())
+        current = max(cab.autocollect_until, now)
+        cab.autocollect_until = current + hours * 3600
+        await cabbit_repo.save(s, cab)
+        name = cab.name
+
+    await message.answer(f"✅ <b>{name}</b> получил автосбор на <b>{hours}ч</b>", parse_mode="HTML")
+
+
 @router.message(Command("setref"))
 async def cmd_setref(message: Message):
     """/setref <invited_user_id> <referrer_user_id>"""
