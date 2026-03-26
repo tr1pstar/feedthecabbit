@@ -20,6 +20,9 @@ async def create(session: AsyncSession, challenger_id: int, target_id: int, stak
 
 
 async def save(session: AsyncSession, duel: Duel) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+    for col in ("moves", "scores"):
+        flag_modified(duel, col)
     session.add(duel)
     await session.flush()
 

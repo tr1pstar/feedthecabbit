@@ -118,9 +118,11 @@ async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
             return {"ok": False, "error": "cabbit_dead"}
 
         import time as _time
+        from sqlalchemy.orm.attributes import flag_modified
         duel.status = "active"
         duel.moves = {}
         duel.round_started_at = int(_time.time())
+        flag_modified(duel, "moves")
         await duel_repo.save(s, duel)
 
         return {
@@ -169,8 +171,10 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         if player_key in moves:
             return {"ok": False, "error": "already_moved"}
 
+        from sqlalchemy.orm.attributes import flag_modified
         moves[player_key] = move
         duel.moves = moves
+        flag_modified(duel, "moves")
         await duel_repo.save(s, duel)
 
         if len(moves) < 2:
@@ -189,8 +193,10 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
 
         if outcome == "tie":
             import time as _time
+            from sqlalchemy.orm.attributes import flag_modified
             duel.moves = {}
             duel.round_started_at = int(_time.time())
+            flag_modified(duel, "moves")
             await duel_repo.save(s, duel)
             return {
                 "ok": True, "waiting": False, "resolved": True,

@@ -27,6 +27,9 @@ async def create(session: AsyncSession, user_id: int, name: str) -> Cabbit:
     return cabbit
 
 async def save(session: AsyncSession, cabbit: Cabbit) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+    for col in ("stats", "achievements", "inventory", "food_counts", "quests"):
+        flag_modified(cabbit, col)
     session.add(cabbit)
     await session.flush()
 
