@@ -51,6 +51,15 @@ def hunger_bar(last_fed: int, sick: bool, sick_until: int) -> str:
 _current_season: str = ""
 
 
+def _fmt_autocollect(autocollect_until: int, now: int) -> str:
+    if autocollect_until <= now:
+        return ""
+    left = autocollect_until - now
+    h = left // 3600
+    m = (left % 3600) // 60
+    return f"\n🤖 Автосбор: <b>{h}ч {m}м</b>"
+
+
 def set_current_season(name: str):
     global _current_season
     _current_season = name
@@ -72,6 +81,7 @@ def cabbit_status(cabbit) -> str:
         sick = cabbit.sick
         sick_until = cabbit.sick_until
         skin_id = cabbit.skin
+        autocollect_until = cabbit.autocollect_until
     else:
         # dict
         name = cabbit["name"]
@@ -86,6 +96,7 @@ def cabbit_status(cabbit) -> str:
         sick = cabbit.get("sick", False)
         sick_until = cabbit.get("sick_until", 0)
         skin_id = cabbit.get("skin")
+        autocollect_until = cabbit.get("autocollect_until", 0)
 
     needed = xp_for_level(level)
     pct = min(int(xp / needed * 100), 100)
@@ -108,6 +119,7 @@ def cabbit_status(cabbit) -> str:
         f"🥊 Жетонов: <b>{duel_tokens}</b>\n"
         f"🪙 Монеты: <b>{coins}</b>\n\n"
         f"{box_str}"
+        + (_fmt_autocollect(autocollect_until, now))
         + (f"\n🗓 {_current_season}" if _current_season else "")
     )
 

@@ -786,8 +786,14 @@ async def cmd_setref(message: Message):
         invited.referral_rewarded = False
         await cabbit_repo.save(s, invited)
 
+    # Auto-trigger reward if invited already >= level 5
+    ref_result = await cabbit_service.check_referral_reward(invited_uid)
+    reward_text = ""
+    if ref_result:
+        reward_text = f"\n🎁 Автосбор +{ref_result['hours']}ч начислен {ref_result['referrer_name']}!"
+
     await message.answer(
-        f"✅ Реферал установлен: <b>{invited.name}</b> приглашён <b>{referrer.name}</b>",
+        f"✅ Реферал установлен: <b>{invited.name}</b> приглашён <b>{referrer.name}</b>{reward_text}",
         parse_mode="HTML",
     )
 
