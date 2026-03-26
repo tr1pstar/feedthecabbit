@@ -218,6 +218,62 @@ async def cancel(message: Message, state: FSMContext):
     await message.answer("Отменено.")
 
 
+ACH_PAGE_SIZE = 10
+
+
+async def _show_achievements_page(callback, achievements, page, earned_count, total_count):
+    pages = (total_count + ACH_PAGE_SIZE - 1) // ACH_PAGE_SIZE
+    page = max(0, min(page, pages - 1))
+    start = page * ACH_PAGE_SIZE
+    chunk = achievements[start:start + ACH_PAGE_SIZE]
+
+    lines = [f"🏆 <b>Достижения ({earned_count}/{total_count})</b> — стр. {page + 1}/{pages}\n"]
+    for a in chunk:
+        if a["earned"]:
+            lines.append(f"✅ {a['emoji']} <b>{a['name']}</b> — {a['desc']}")
+        else:
+            lines.append(f"⬜ {a['emoji']} {a['name']} ({a['progress']}/{a['need']})")
+
+    buttons = []
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"ach_page:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="cabbit:achievements"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"ach_page:{page + 1}"))
+    if pages > 1:
+        buttons.append(nav)
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+
+    text = "\n".join(lines)
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    try:
+        await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(text=text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("ach_page:"))
+async def callback_ach_page(callback: CallbackQuery):
+    uid = callback.from_user.id
+    page = int(callback.data.split(":")[1])
+    await callback.answer()
+
+    from services import quest_service
+    result = await quest_service.get_achievements(uid)
+    if not result.get("ok"):
+        return
+
+    all_achs = result["achievements"]
+    earned_count = sum(1 for a in all_achs if a["earned"])
+    total_count = len(all_achs)
+    await _show_achievements_page(callback, all_achs, page, earned_count, total_count)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Big callback router — cabbit:ACTION
 # ──────────────────────────────────────────────────────────────────────────────
@@ -544,36 +600,10 @@ async def callback_cabbit(callback: CallbackQuery):
             return
 
         await callback.answer()
-        earned_list = [a for a in result["achievements"] if a["earned"]]
-        not_earned = [a for a in result["achievements"] if not a["earned"]]
-        earned_count = len(earned_list)
-        total_count = len(result["achievements"])
-
-        lines = [f"🏆 <b>Достижения ({earned_count}/{total_count}):</b>\n"]
-        for a in earned_list:
-            lines.append(f"✅ {a['emoji']} <b>{a['name']}</b>")
-        if not_earned:
-            lines.append("")
-            for a in not_earned:
-                lines.append(f"⬜ {a['emoji']} {a['name']} ({a['progress']}/{a['need']})")
-
-        buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")]]
-        text = "\n".join(lines)
-        # Caption limit is 1024, use edit_text via new message if too long
-        if len(text) > 1024:
-            try:
-                await callback.message.delete()
-            except Exception:
-                pass
-            await callback.message.answer(text=text, parse_mode="HTML",
-                                          reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        else:
-            try:
-                await callback.message.edit_caption(caption=text, parse_mode="HTML",
-                                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-            except Exception:
-                await callback.message.edit_text(text=text, parse_mode="HTML",
-                                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        all_achs = result["achievements"]
+        earned_count = sum(1 for a in all_achs if a["earned"])
+        total_count = len(all_achs)
+        await _show_achievements_page(callback, all_achs, 0, earned_count, total_count)
         return
 
     # ── leaderboard ───────────────────────────────────────────────────────
