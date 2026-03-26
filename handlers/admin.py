@@ -6,6 +6,8 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
 from config import ADMIN_ID
 from services import cabbit_service, skin_service, season_service
@@ -16,6 +18,10 @@ from core.game_math import get_evolution
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+class AddSkinState(StatesGroup):
+    waiting_photo = State()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -116,6 +122,61 @@ async def cmd_bancabbit(message: Message):
     await message.answer(
         f"🔨 <b>Кеббит «{target_name}» (владелец {target_uid}) забанен.</b>\n"
         f"Причина: <i>{reason}</i>",
+        parse_mode="HTML",
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Unban cabbit
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.message(Command("unbancabbit"))
+async def cmd_unbancabbit(message: Message):
+    """/unbancabbit <user_id>"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split(maxsplit=1)
+    if len(args) < 2:
+        all_cabs = await cabbit_service.get_all_cabbits()
+        banned = [c for c in all_cabs if c.get("banned")]
+        if not banned:
+            await message.answer("Нет забаненных кеббитов.")
+            return
+        lines = ["🔓 <b>Забаненные кеббиты:</b>\n"]
+        for c in banned:
+            lines.append(
+                f"  💀 <b>{c['name']}</b> — <code>{c['user_id']}</code>"
+                f" ({c.get('ban_reason', '—')})"
+            )
+        lines.append(f"\n<i>Использование: /unbancabbit &lt;user_id&gt;</i>")
+        await message.answer("\n".join(lines), parse_mode="HTML")
+        return
+
+    target_uid = int(args[1].strip())
+    result = await cabbit_service.unban_cabbit(target_uid)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "not_found":
+            await message.answer(f"❌ Кеббит <code>{target_uid}</code> не найден.", parse_mode="HTML")
+        elif err == "not_banned":
+            await message.answer("❌ Этот кеббит не забанен.")
+        else:
+            await message.answer("❌ Ошибка.")
+        return
+
+    try:
+        await message.bot.send_message(
+            chat_id=target_uid,
+            text=f"🔓 <b>Твой кеббит «{result['target_name']}» разбанен!</b>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"unbancabbit notify uid={target_uid}: {e}")
+
+    await message.answer(
+        f"🔓 <b>Кеббит «{result['target_name']}» ({target_uid}) разбанен.</b>",
         parse_mode="HTML",
     )
 
@@ -414,40 +475,19 @@ async def cmd_addcoins(message: Message):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.message(Command("addskin"))
-async def cmd_addskin(message: Message):
-    """Without photo: show instructions."""
+async def cmd_addskin(message: Message, state: FSMContext):
+    """Step 1: parse /addskin id Name rarity, then ask for photo."""
     if message.from_user.id != ADMIN_ID:
         await message.answer("❌ Только администратор.")
         return
 
-    await message.answer(
-        "📸 Отправь <b>фото</b> с подписью:\n"
-        "<code>/addskin id Название редкость</code>\n\n"
-        "Редкость: common / rare / epic / legendary\n"
-        "Пример: <code>/addskin fire_cat Огненный кот epic</code>",
-        parse_mode="HTML",
-    )
-
-
-@router.message(F.photo)
-async def handle_addskin_photo(message: Message):
-    """Catch photo with /addskin caption — add skin."""
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    caption = (message.caption or "").strip()
-    if not caption.lower().startswith("/addskin"):
-        return
-
-    photo = message.photo
-    if not photo:
-        return
-
-    tokens = caption.split()[1:]
+    tokens = message.text.split()[1:]
     if len(tokens) < 3:
         await message.answer(
-            "Подпись должна быть: /addskin <id> <название> <редкость>\n"
-            "Пример: /addskin fire_cat Огненный кот epic"
+            "Использование: <code>/addskin id Название редкость</code>\n\n"
+            "Редкость: common / rare / epic / legendary\n"
+            "Пример: <code>/addskin fire_cat Огненный кот epic</code>",
+            parse_mode="HTML",
         )
         return
 
@@ -456,11 +496,28 @@ async def handle_addskin_photo(message: Message):
     disp_name = " ".join(tokens[1:-1])
 
     if rarity not in ("common", "rare", "epic", "legendary"):
-        await message.answer(
-            "Редкость должна быть: common / rare / epic / legendary")
+        await message.answer("Редкость должна быть: common / rare / epic / legendary")
         return
 
-    file_id = photo[-1].file_id
+    await state.set_state(AddSkinState.waiting_photo)
+    await state.update_data(skin_id=skin_id, rarity=rarity, disp_name=disp_name)
+    await message.answer(
+        f"📸 Теперь отправь фото для скина <b>{disp_name}</b> ({rarity}):",
+        parse_mode="HTML",
+    )
+
+
+@router.message(AddSkinState.waiting_photo, F.photo)
+async def handle_addskin_photo(message: Message, state: FSMContext):
+    """Step 2: receive photo and save skin."""
+    data = await state.get_data()
+    await state.clear()
+
+    skin_id = data["skin_id"]
+    rarity = data["rarity"]
+    disp_name = data["disp_name"]
+
+    file_id = message.photo[-1].file_id
     result = await skin_service.admin_add_skin(
         skin_id, file_id, disp_name, rarity, message.from_user.id)
 
@@ -481,10 +538,15 @@ async def handle_addskin_photo(message: Message):
         f"Редкость: {rarity}\n\n"
         f"Настрой параметры:\n"
         f"/skindrop {skin_id} 1.5  — шанс из коробки\n"
-        f"/skinlevel {skin_id} 10  — вес за уровни\n"
         f"/skinprice {skin_id} 500 — цена в магазине",
         parse_mode="HTML",
     )
+
+
+@router.message(AddSkinState.waiting_photo)
+async def handle_addskin_not_photo(message: Message, state: FSMContext):
+    """Wrong input while waiting for photo."""
+    await message.answer("❌ Отправь именно фото. Или /cancel для отмены.")
 
 
 @router.message(Command("skindrop"))

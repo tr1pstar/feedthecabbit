@@ -23,7 +23,7 @@ from core.formatting import (
 )
 from core.constants import (
     RULES_TEXT, REPLY_KB_LABELS, CABBIT_PHOTO,
-    RAID_COOLDOWN, RARITY_EMOJI, SKIN_LEVEL_INTERVAL,
+    RAID_COOLDOWN, RARITY_EMOJI,
     FOOD_HEAL, COINS_DAILY_BONUS, COINS_RAID_OK,
     RENAME_COST, CAPSULE_PRICES, CAPSULE_NAMES,
 )
@@ -36,6 +36,10 @@ router = Router()
 
 class NamingState(StatesGroup):
     waiting_name = State()
+
+
+class DuelSearchState(StatesGroup):
+    waiting_query = State()
 
 
 class RenamingState(StatesGroup):
@@ -235,6 +239,35 @@ async def callback_cabbit(callback: CallbackQuery):
     if action == "refresh":
         await callback.answer()
         await _edit_card(callback, cab)
+        return
+
+    # ── referral ──────────────────────────────────────────────────────────
+    if action == "referral":
+        await callback.answer()
+        bot_info = await callback.bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{uid}"
+        autocollect = cab.get("autocollect_until", 0)
+        now = int(time.time())
+        ac_text = ""
+        if autocollect > now:
+            left = autocollect - now
+            ac_text = f"\n\n📦 Автосбор активен: <b>{left // 3600}ч {(left % 3600) // 60}м</b>"
+        text = (
+            f"👥 <b>Пригласи друга!</b>\n\n"
+            f"Отправь ссылку другу — когда его кеббит достигнет "
+            f"<b>5 уровня</b>, ты получишь:\n\n"
+            f"📦 <b>Автосбор коробок на 6 часов!</b>\n"
+            f"Коробки будут открываться сами, время от нескольких "
+            f"рефералов суммируется.\n\n"
+            f"🔗 Твоя ссылка:\n<code>{ref_link}</code>{ac_text}"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+        ])
+        try:
+            await callback.message.edit_caption(caption=text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
         return
 
     # ── inventory ─────────────────────────────────────────────────────────
@@ -615,6 +648,7 @@ async def callback_cabbit(callback: CallbackQuery):
             return
         await callback.answer()
         kb = paginated_target_buttons(others, 0, "duel_send", "duel_send:cancel")
+        kb.inline_keyboard.insert(-1, [InlineKeyboardButton(text="🔍 Поиск по имени", callback_data="duel_search")])
         text = "🥊 <b>Выбери противника для дуэли</b>"
         try:
             await callback.message.edit_caption(caption=text, parse_mode="HTML", reply_markup=kb)
@@ -680,21 +714,6 @@ async def callback_cabbit(callback: CallbackQuery):
                     text_parts.append(
                         f"\n✨ <b>ЭВОЛЮЦИЯ: {evo['emoji']} {evo['name']}!</b>")
 
-                # Skin for level-up
-                skin_lvl = result.get("skin_level")
-                if skin_lvl:
-                    r_em = RARITY_EMOJI.get(skin_lvl.get("rarity", "common"), "⚪")
-                    text_parts.append(
-                        f"\n\n🎨 <b>СКИН ЗА УРОВЕНЬ!</b>\n"
-                        f"  {r_em} <b>{skin_lvl['display_name']}</b>\n"
-                        f"  Выбрать: /skins"
-                    )
-                elif result.get("skin_level_coins"):
-                    text_parts.append(
-                        f"\n\n🪙 Все скины за уровни уже есть! "
-                        f"+{result['skin_level_coins']} монет"
-                    )
-
         # Coins
         coins_gained = result.get("coins_gained", 0)
         if result.get("daily_bonus"):
@@ -758,6 +777,22 @@ async def callback_cabbit(callback: CallbackQuery):
 
         text_parts.append(f"\n\n🥊 +1 жетон дуэли\n\n{cabbit_status(cab)}")
         await _edit_card(callback, cab, "".join(text_parts))
+
+        # Check referral reward
+        ref_result = await cabbit_service.check_referral_reward(uid)
+        if ref_result:
+            try:
+                await callback.bot.send_message(
+                    chat_id=ref_result["referrer_uid"],
+                    text=(
+                        f"🎉 <b>Реферальная награда!</b>\n\n"
+                        f"Твой реферал <b>{ref_result['invited_name']}</b> достиг 5 уровня!\n"
+                        f"📦 Автосбор коробок на <b>{ref_result['hours']}ч</b> активирован!"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -836,6 +871,46 @@ async def callback_duel_page(callback: CallbackQuery):
         await callback.message.edit_caption(caption=text, parse_mode="HTML", reply_markup=kb)
     except Exception:
         await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Duel search
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data == "duel_search")
+async def callback_duel_search(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(DuelSearchState.waiting_query)
+    try:
+        await callback.message.edit_text(
+            "🔍 <b>Поиск противника</b>\n\nВведи имя кеббита:")
+    except Exception:
+        await callback.message.answer(
+            "🔍 <b>Поиск противника</b>\n\nВведи имя кеббита:")
+
+
+@router.message(DuelSearchState.waiting_query, F.text)
+async def duel_search_query(message: Message, state: FSMContext):
+    await state.clear()
+    uid = message.from_user.id
+    query = message.text.strip().lower()
+
+    all_cabs = await cabbit_service.get_all_cabbits()
+    others = [(c["uid"], c) for c in all_cabs
+              if c["user_id"] != uid and not c.get("dead")
+              and query in c["name"].lower()]
+
+    if not others:
+        await message.answer(
+            f"❌ Никого не найдено по запросу «{message.text.strip()}».\n"
+            "Попробуй через ⚔️ Бой → 🥊 Дуэль.")
+        return
+
+    others.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+    kb = paginated_target_buttons(others, 0, "duel_send", "duel_send:cancel")
+    await message.answer(
+        f"🔍 Результаты по «{message.text.strip()}»:",
+        reply_markup=kb)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1160,9 +1235,10 @@ async def cmd_raid(message: Message):
         "Кулдаун: 2 часа\n\n"
         "Жми кнопку в /cabbit чтобы начать!",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="🏴‍☠️ Начать рейд", callback_data="cabbit:raid")
-        ]]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏴‍☠️ Начать рейд", callback_data="cabbit:raid")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+        ]),
     )
 
 
@@ -1200,8 +1276,9 @@ async def cmd_prestige(message: Message):
 
 @router.message(Command("leaderboard"))
 async def cmd_leaderboard(message: Message):
-    leaders = await cabbit_service.get_leaderboard(10)
-    alive = [c for c in leaders if not c.get("dead")]
+    uid = message.from_user.id
+    all_cabs = await cabbit_service.get_all_cabbits()
+    alive = [c for c in all_cabs if not c.get("dead")]
     if not alive:
         await message.answer("🏆 Пока нет живых кеббитов.")
         return
@@ -1210,17 +1287,122 @@ async def cmd_leaderboard(message: Message):
                reverse=True)
     lines = ["🏆 <b>Лидерборд кеббитов:</b>\n"]
     medals = ["🥇", "🥈", "🥉"]
-    for i, c in enumerate(alive[:10], 1):
-        medal = medals[i - 1] if i <= 3 else f"{i}."
-        evo = get_evolution(c["level"])
-        achs = len(c.get("achievements", []))
-        stars = c.get("prestige_stars", 0)
+    my_place = None
+    for i, c in enumerate(alive, 1):
+        if c["user_id"] == uid:
+            my_place = i
+        if i <= 10:
+            medal = medals[i - 1] if i <= 3 else f"{i}."
+            evo = get_evolution(c["level"])
+            achs = len(c.get("achievements", []))
+            stars = c.get("prestige_stars", 0)
+            stars_str = f" {'⭐' * stars}" if stars > 0 else ""
+            lines.append(
+                f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — ур. {c['level']} "
+                f"({c['xp']} XP) 🏅{achs}"
+            )
+
+    if my_place:
+        if my_place <= 10:
+            lines.append(f"\n📍 Ты на <b>{my_place}</b> месте!")
+        else:
+            lines.append(f"\n📍 Твоё место: <b>{my_place}</b> из {len(alive)}")
+
+    from services import season_service
+    past = await season_service.get_past_seasons()
+    buttons = []
+    if past:
+        buttons = [
+            [InlineKeyboardButton(
+                text=f"📜 {s['name'] or 'Сезон ' + str(s['number'])}",
+                callback_data=f"season_top:{s['number']}"
+            )]
+            for s in past
+        ]
+
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("season_top:"))
+async def callback_season_top(callback: CallbackQuery):
+    season_num = int(callback.data.split(":")[1])
+    await callback.answer()
+
+    from services import season_service
+    top = await season_service.get_season_top(season_num)
+    if not top:
+        await callback.message.edit_text("📜 Нет данных о топе этого сезона.")
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines = [f"📜 <b>Топ сезона #{season_num}:</b>\n"]
+    for t in top:
+        medal = medals[t["place"] - 1] if t["place"] <= 3 else f"{t['place']}."
+        stars = t.get("prestige_stars", 0)
         stars_str = f" {'⭐' * stars}" if stars > 0 else ""
         lines.append(
-            f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — ур. {c['level']} "
-            f"({c['xp']} XP) 🏅{achs}"
+            f"{medal} <b>{t['name']}</b>{stars_str} — ур. {t['level']} ({t['xp']} XP)"
         )
-    await message.answer("\n".join(lines), parse_mode="HTML")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Текущий топ", callback_data="leaderboard_current"),
+         InlineKeyboardButton(text="🐰 Кеббит", callback_data="cabbit:refresh")],
+    ])
+    await callback.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "leaderboard_current")
+async def callback_leaderboard_current(callback: CallbackQuery):
+    await callback.answer()
+    uid = callback.from_user.id
+    all_cabs = await cabbit_service.get_all_cabbits()
+    alive = [c for c in all_cabs if not c.get("dead")]
+    if not alive:
+        await callback.message.edit_text("🏆 Пока нет живых кеббитов.")
+        return
+
+    alive.sort(key=lambda x: (x.get("prestige_stars", 0), x["level"], x["xp"]),
+               reverse=True)
+    lines = ["🏆 <b>Лидерборд кеббитов:</b>\n"]
+    medals = ["🥇", "🥈", "🥉"]
+    my_place = None
+    for i, c in enumerate(alive, 1):
+        if c["user_id"] == uid:
+            my_place = i
+        if i <= 10:
+            medal = medals[i - 1] if i <= 3 else f"{i}."
+            evo = get_evolution(c["level"])
+            achs = len(c.get("achievements", []))
+            stars = c.get("prestige_stars", 0)
+            stars_str = f" {'⭐' * stars}" if stars > 0 else ""
+            lines.append(
+                f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — ур. {c['level']} "
+                f"({c['xp']} XP) 🏅{achs}"
+            )
+
+    if my_place:
+        if my_place <= 10:
+            lines.append(f"\n📍 Ты на <b>{my_place}</b> месте!")
+        else:
+            lines.append(f"\n📍 Твоё место: <b>{my_place}</b> из {len(alive)}")
+
+    from services import season_service
+    past = await season_service.get_past_seasons()
+    buttons = []
+    if past:
+        buttons = [
+            [InlineKeyboardButton(
+                text=f"📜 {s['name'] or 'Сезон ' + str(s['number'])}",
+                callback_data=f"season_top:{s['number']}"
+            )]
+            for s in past
+        ]
+
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
 @router.message(Command("profile"))
@@ -1305,6 +1487,7 @@ async def cmd_skins(message: Message):
             callback_data=f"skin_sel:{s['skin_id']}"
         )])
 
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
     await message.answer(
         "\n".join(lines) + "\n\nВыбери скин:",
         parse_mode="HTML",
@@ -1386,7 +1569,11 @@ async def cmd_shop(message: Message):
 
     lines.append(f"\n✏️ Смена имени: /rename НовоеИмя — 🪙 {RENAME_COST}")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+    buttons.append([InlineKeyboardButton(text="💰 Купить монеты", callback_data="coinshop")])
+    buttons.append([InlineKeyboardButton(text="💝 Донат", callback_data="donate_start")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
 
 
@@ -1511,7 +1698,8 @@ async def callback_shop_back(callback: CallbackQuery):
                 callback_data=f"capsule_buy:{cap['rarity']}"
             )])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     text = "\n".join(lines)
     try:
         await callback.message.edit_caption(caption=text, parse_mode="HTML", reply_markup=kb)
@@ -1602,6 +1790,7 @@ async def handle_reply_keyboard(message: Message):
             return
         buttons = [[InlineKeyboardButton(text=f"🎰 {s} XP", callback_data=f"casino_bet:{s}")]
                    for s in stakes]
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
         await message.answer(
             f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\nВыбери ставку:",
             parse_mode="HTML",
@@ -1629,6 +1818,7 @@ async def handle_reply_keyboard(message: Message):
         else:
             buttons.append([InlineKeyboardButton(
                 text="🥊 Дуэль (нет жетонов)", callback_data="cabbit:refresh")])
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
         await message.answer(
             "⚔️ <b>Бой</b>\n\n🏴‍☠️ Рейд — украсть XP (40% шанс)\n🥊 Дуэль — камень-ножницы-бумага",
             parse_mode="HTML",
@@ -1644,3 +1834,205 @@ async def handle_reply_keyboard(message: Message):
 
     elif text == "📊 Топ":
         await cmd_leaderboard(message)
+
+    elif text == "📖 Вики":
+        await message.answer(
+            "📖 <b>Вики Кеббита</b>\n\n"
+            "Выбери раздел:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🐰 Основы", callback_data="wiki:basics")],
+                [InlineKeyboardButton(text="🍗 Еда и голод", callback_data="wiki:food")],
+                [InlineKeyboardButton(text="📦 Коробки", callback_data="wiki:boxes")],
+                [InlineKeyboardButton(text="🧪 Предметы", callback_data="wiki:items")],
+                [InlineKeyboardButton(text="🤒 Болезнь", callback_data="wiki:sickness")],
+                [InlineKeyboardButton(text="⚔️ Дуэли и рейды", callback_data="wiki:combat")],
+                [InlineKeyboardButton(text="🎰 Казино", callback_data="wiki:casino")],
+                [InlineKeyboardButton(text="🎨 Скины и капсулы", callback_data="wiki:skins")],
+                [InlineKeyboardButton(text="⭐ Эволюции и престиж", callback_data="wiki:evolution")],
+                [InlineKeyboardButton(text="🏆 Достижения", callback_data="wiki:achievements")],
+                [InlineKeyboardButton(text="👥 Рефералка", callback_data="wiki:referral")],
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+            ]),
+        )
+
+    elif text == "📬 Обратная связь":
+        from handlers.feedback import FEEDBACK_TEXT, FEEDBACK_KB
+        await message.answer(FEEDBACK_TEXT, reply_markup=FEEDBACK_KB)
+
+
+_WIKI_BACK_BTN = [InlineKeyboardButton(text="◀️ Разделы", callback_data="wiki:menu"), InlineKeyboardButton(text="🐰 Кеббит", callback_data="cabbit:refresh")]
+
+WIKI_PAGES = {
+    "basics": (
+        "🐰 <b>Основы</b>\n\n"
+        "Кеббит — твой виртуальный питомец. Корми его, "
+        "открывай коробки, сражайся с другими и прокачивайся!\n\n"
+        "• Каждые <b>30 мин</b> доступна новая коробка\n"
+        "• Из коробки выпадает еда (+XP), монеты, иногда предметы или скины\n"
+        "• Если не кормить кеббита <b>24 часа</b> — он умрёт 💀\n"
+        "• XP повышают уровень, уровень открывает эволюции\n"
+        "• Монеты тратятся в магазине на капсулы со скинами"
+    ),
+    "food": (
+        "🍗 <b>Еда и голод</b>\n\n"
+        "Еда выпадает из коробок и восполняет голод:\n\n"
+        "🥕 <b>Морковь</b> — 60% шанс, +80 XP, утоляет голод на 3ч\n"
+        "🍗 <b>Корм</b> — 20% шанс, +200 XP, утоляет голод на 6ч\n"
+        "✨ <b>Вкусность</b> — 20% шанс, +500 XP, утоляет голод на 12ч\n\n"
+        "⚠️ <b>Предупреждения:</b>\n"
+        "• Через <b>12ч</b> без еды — первое предупреждение\n"
+        "• Через <b>23ч</b> — последнее предупреждение\n"
+        "• Через <b>24ч</b> — кеббит умирает"
+    ),
+    "boxes": (
+        "📦 <b>Коробки</b>\n\n"
+        "Коробка доступна каждые <b>30 минут</b>.\n\n"
+        "Из коробки выпадает:\n"
+        "• 🍗 <b>Еда</b> — всегда (кормит + даёт XP)\n"
+        "• 🪙 <b>Монеты</b> — 5-30 шт (+ бонус 50 за первую коробку дня)\n"
+        "• 🥊 <b>Жетон дуэли</b> — +1 за каждую коробку\n"
+        "• 🧪 <b>Предмет</b> — редкий шанс\n"
+        "• 🎨 <b>Скин</b> — зависит от drop_chance скина\n"
+        "• 🔪 <b>Нож</b> — 0.15% шанс (только если ни у кого нет ножа)\n"
+        "• 🎲 <b>Случайное событие</b> — бонус или штраф XP"
+    ),
+    "items": (
+        "🧪 <b>Предметы</b>\n\n"
+        "Выпадают из коробок с небольшим шансом:\n\n"
+        "🛡 <b>Щит</b> (0.15%) — защищает от ножа (один раз)\n"
+        "🧪 <b>Зелье</b> (2%) — полностью утоляет голод\n"
+        "🧲 <b>Магнит</b> (1.5%) — крадёт 100-300 XP у случайного игрока\n"
+        "👑 <b>Корона</b> (1.5%) — x2 XP на 3 следующие коробки\n"
+        "💊 <b>Таблетка</b> (3%) — мгновенно лечит болезнь\n\n"
+        "Предметы копятся в инвентаре. Использовать: кнопка 🎒 Инвентарь"
+    ),
+    "sickness": (
+        "🤒 <b>Болезнь</b>\n\n"
+        "При открытии коробки есть <b>5%</b> шанс заболеть.\n\n"
+        "• Болезнь длится <b>6 часов</b>\n"
+        "• Во время болезни XP из коробок <b>x0.5</b>\n"
+        "• Лечится: 💊 <b>Таблеткой</b> (мгновенно) или проходит сама\n"
+        "• Болезнь отображается в карточке кеббита"
+    ),
+    "combat": (
+        "⚔️ <b>Дуэли и рейды</b>\n\n"
+        "<b>🥊 Дуэль</b> (камень-ножницы-бумага):\n"
+        "• Стоит 1 жетон (выпадает из коробок)\n"
+        "• Выбираешь противника и ставку XP\n"
+        "• Победитель забирает ставку, проигравший теряет\n"
+        "• Ничья — переигровка\n\n"
+        "<b>🏴‍☠️ Рейд</b>:\n"
+        "• Кулдаун <b>2 часа</b>\n"
+        "• 40% шанс успеха — крадёшь 10% XP цели (макс 500)\n"
+        "• 60% провал — теряешь 5% своего XP\n"
+        "• Успешный рейд даёт +15 монет\n\n"
+        "<b>🔪 Нож</b>:\n"
+        "• Выпадает из коробки (0.15%)\n"
+        "• Убивает чужого кеббита навсегда\n"
+        "• 🛡 Щит спасает от ножа"
+    ),
+    "casino": (
+        "🎰 <b>Казино</b>\n\n"
+        "Слот-машина на XP. Делаешь ставку и крутишь.\n\n"
+        "Ставки: 10 / 50 / 100 / 250 / 500 XP\n\n"
+        "Выигрыш зависит от комбинации символов на барабанах:\n"
+        "🍒🍋🔔💎7️⃣🍀\n\n"
+        "• 3 одинаковых — большой выигрыш\n"
+        "• 2 одинаковых — малый выигрыш\n"
+        "• Иначе — проигрыш"
+    ),
+    "skins": (
+        "🎨 <b>Скины и капсулы</b>\n\n"
+        "<b>Как получить скины:</b>\n"
+        "• 📦 Дроп из коробок (у каждого скина свой шанс)\n"
+        "• 🏪 Капсулы в магазине за монеты\n\n"
+        "<b>Капсулы:</b>\n"
+        "⚪ Обычная — 100 монет\n"
+        "🔵 Редкая — 300 монет\n"
+        "🟣 Эпическая — 800 монет\n"
+        "🟡 Легендарная — 2000 монет\n\n"
+        "В капсуле — случайный скин выбранной редкости "
+        "(равные шансы среди тех, что ещё нет).\n\n"
+        "Надеть скин: /skins → выбрать"
+    ),
+    "evolution": (
+        "⭐ <b>Эволюции и престиж</b>\n\n"
+        "<b>Эволюции</b> (открываются с уровнем):\n"
+        "🐣 <b>Малыш</b> — ур. 1+ (x1.0 XP)\n"
+        "🐰 <b>Подросток</b> — ур. 5+ (x1.2 XP)\n"
+        "⚔️ <b>Воин</b> — ур. 15+ (x1.5 XP)\n"
+        "👑 <b>Легенда</b> — ур. 30+ (x2.0 XP)\n\n"
+        "<b>Престиж</b> (ур. 30+):\n"
+        "• Сбрасывает уровень и XP до 1\n"
+        "• Даёт ⭐ звезду престижа\n"
+        "• Каждая звезда — +10% к XP навсегда\n"
+        "• Команда: /prestige"
+    ),
+    "achievements": (
+        "🏆 <b>Достижения</b>\n\n"
+        "📦 <b>Первая коробка</b> — открой 1 коробку (+50 XP)\n"
+        "📦 <b>Коллекционер</b> — 10 коробок (+100 XP)\n"
+        "🍽 <b>Охотник за едой</b> — 50 коробок (+300 XP)\n"
+        "🎁 <b>Обжора</b> — 100 коробок (+500 XP)\n"
+        "🌱 <b>Подросток</b> — ур. 5 (+200 XP)\n"
+        "⚔️ <b>Воин</b> — ур. 15 (+500 XP)\n"
+        "👑 <b>Легенда</b> — ур. 30 (+1000 XP)\n"
+        "🥊 <b>Дуэлянт</b> — 1 победа (+100 XP)\n"
+        "🏆 <b>Чемпион</b> — 10 побед (+500 XP)\n"
+        "🔪 <b>Убийца</b> — 1 убийство (+200 XP)\n"
+        "💰 <b>Налётчик</b> — 1 успешный рейд (+100 XP)\n"
+        "🦹 <b>Грабитель</b> — 10 рейдов (+400 XP)\n"
+        "🎰 <b>Везунчик</b> — 1 выигрыш в казино (+100 XP)\n"
+        "🃏 <b>Картёжник</b> — 10 выигрышей (+300 XP)\n"
+        "💫 <b>Тысячник</b> — 1000 XP суммарно (+200 XP)\n"
+        "💎 <b>Магнат</b> — 10000 XP суммарно (+1000 XP)"
+    ),
+    "referral": (
+        "👥 <b>Рефералка</b>\n\n"
+        "Пригласи друга по своей ссылке и получи награду!\n\n"
+        "<b>Как это работает:</b>\n"
+        "1. Открой /profile — там твоя реферальная ссылка\n"
+        "2. Отправь ссылку другу\n"
+        "3. Друг переходит, создаёт кеббита и качается\n"
+        "4. Когда друг достигнет <b>5 уровня</b> — ты получаешь награду!\n\n"
+        "<b>Награда:</b>\n"
+        "📦 <b>Автосбор коробок на 6 часов</b>\n"
+        "Коробки будут открываться автоматически!\n\n"
+        "Если пригласишь несколько друзей — время суммируется."
+    ),
+}
+
+
+@router.callback_query(F.data.startswith("wiki:"))
+async def callback_wiki(callback: CallbackQuery):
+    section = callback.data.split(":")[1]
+    await callback.answer()
+
+    if section == "menu":
+        await callback.message.edit_text(
+            "📖 <b>Вики Кеббита</b>\n\nВыбери раздел:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🐰 Основы", callback_data="wiki:basics")],
+                [InlineKeyboardButton(text="🍗 Еда и голод", callback_data="wiki:food")],
+                [InlineKeyboardButton(text="📦 Коробки", callback_data="wiki:boxes")],
+                [InlineKeyboardButton(text="🧪 Предметы", callback_data="wiki:items")],
+                [InlineKeyboardButton(text="🤒 Болезнь", callback_data="wiki:sickness")],
+                [InlineKeyboardButton(text="⚔️ Дуэли и рейды", callback_data="wiki:combat")],
+                [InlineKeyboardButton(text="🎰 Казино", callback_data="wiki:casino")],
+                [InlineKeyboardButton(text="🎨 Скины и капсулы", callback_data="wiki:skins")],
+                [InlineKeyboardButton(text="⭐ Эволюции и престиж", callback_data="wiki:evolution")],
+                [InlineKeyboardButton(text="🏆 Достижения", callback_data="wiki:achievements")],
+                [InlineKeyboardButton(text="👥 Рефералка", callback_data="wiki:referral")],
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+            ]),
+        )
+        return
+
+    page_text = WIKI_PAGES.get(section)
+    if not page_text:
+        return
+
+    await callback.message.edit_text(
+        page_text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[_WIKI_BACK_BTN]),
+    )

@@ -25,8 +25,7 @@ class DonateState(StatesGroup):
 
 # ── Shop ──────────────────────────────────────────────────────────────────────
 
-@router.message(Command("shop"))
-async def cmd_shop(message: Message):
+def _coinshop_kb() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(
             text=f"🪙 {p['label']} — {p['price']:.0f}$",
@@ -34,12 +33,25 @@ async def cmd_shop(message: Message):
         )]
         for i, p in enumerate(COIN_PACKS)
     ]
-    await message.answer(
-        "🏪 <b>Магазин монет</b>\n\n"
-        "Курс: <b>100 монет = 1 USDT</b>\n"
-        "Выбери пакет:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+COINSHOP_TEXT = "💰 <b>Магазин монет</b>\n\nКурс: <b>100 монет = 1 USDT</b>\nВыбери пакет:"
+
+
+@router.message(Command("coinshop"))
+async def cmd_shop(message: Message):
+    await message.answer(COINSHOP_TEXT, reply_markup=_coinshop_kb())
+
+
+@router.callback_query(F.data == "coinshop")
+async def callback_coinshop(callback: CallbackQuery):
+    await callback.answer()
+    try:
+        await callback.message.edit_text(COINSHOP_TEXT, reply_markup=_coinshop_kb())
+    except Exception:
+        await callback.message.answer(COINSHOP_TEXT, reply_markup=_coinshop_kb())
 
 
 @router.callback_query(F.data.startswith("buy_coins:"))
@@ -63,7 +75,7 @@ async def callback_buy_coins(callback: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оплатить", url=result["url"])],
         [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:{result['invoice_id']}:coins:{pack['coins']}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="pay_cancel")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
     ])
 
     await callback.message.edit_text(
@@ -85,7 +97,17 @@ async def cmd_donate(message: Message, state: FSMContext):
     )
 
 
-@router.message(DonateState.waiting_amount)
+@router.callback_query(F.data == "donate_start")
+async def callback_donate_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(DonateState.waiting_amount)
+    await callback.message.edit_text(
+        "💝 <b>Донат</b>\n\n"
+        "Введи сумму (число):",
+    )
+
+
+@router.message(DonateState.waiting_amount, F.text)
 async def donate_amount(message: Message, state: FSMContext):
     try:
         amount = float(message.text.replace(",", ".").strip())
@@ -130,7 +152,7 @@ async def donate_currency(callback: CallbackQuery, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оплатить", url=result["url"])],
         [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"check_pay:{result['invoice_id']}:donate:0")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="pay_cancel")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
     ])
 
     await callback.message.edit_text(

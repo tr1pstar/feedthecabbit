@@ -60,9 +60,9 @@ async def play_casino(user_id: int, bet: int) -> dict:
         if cab.dead:
             return {"ok": False, "error": "dead"}
 
-        # Block if in active duel
+        # Block if in any duel (pending or active)
         duel = await duel_repo.find_by_user(s, user_id)
-        if duel and duel.status == "active":
+        if duel:
             return {"ok": False, "error": "in_duel"}
 
         if cab.xp < bet:

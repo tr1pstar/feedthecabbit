@@ -27,6 +27,10 @@ async def init_db():
                 "UPDATE cabbits SET uid = nextval('cabbit_uid_seq') WHERE uid IS NULL"
             ))
             await conn.execute(text("ALTER TABLE cabbits ALTER COLUMN uid SET NOT NULL"))
+        if "referred_by" not in cols:
+            await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referred_by BIGINT"))
+            await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referral_rewarded BOOLEAN DEFAULT false"))
+            await conn.execute(text("ALTER TABLE cabbits ADD COLUMN autocollect_until INTEGER DEFAULT 0"))
 
 @asynccontextmanager
 async def get_session():

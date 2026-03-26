@@ -18,6 +18,7 @@ def get_reply_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🐰 Кеббит"), KeyboardButton(text="🎰 Казино"), KeyboardButton(text="⚔️ Бой")],
             [KeyboardButton(text="📋 Квесты"), KeyboardButton(text="🏪 Магазин"), KeyboardButton(text="📊 Топ")],
+            [KeyboardButton(text="📖 Вики"), KeyboardButton(text="📬 Обратная связь")],
         ],
         resize_keyboard=True,
     )
@@ -119,6 +120,7 @@ def cabbit_keyboard(cabbit) -> InlineKeyboardMarkup:
     ])
     if level >= 30:
         buttons.append([InlineKeyboardButton(text="🌟 Престиж", callback_data="cabbit:prestige")])
+    buttons.append([InlineKeyboardButton(text="👥 Пригласить друга", callback_data="cabbit:referral")])
     buttons.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="cabbit:refresh")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

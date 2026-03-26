@@ -9,14 +9,14 @@ from db.engine import get_session
 from repositories import cabbit_repo, skin_repo, duel_repo
 from core.constants import (
     FOOD_TABLE, FOOD_HEAL, KNIFE_CHANCE, ITEM_TABLE, SICKNESS_CHANCE,
-    SICKNESS_DURATION, RAID_COOLDOWN, SKIN_LEVEL_INTERVAL, COINS_PER_BOX,
+    SICKNESS_DURATION, RAID_COOLDOWN, COINS_PER_BOX,
     COINS_DAILY_BONUS, COINS_RAID_OK, RARITY_EMOJI, ACHIEVEMENTS,
     RENAME_COST, WARN_12H, WARN_23H,
 )
 from core.game_math import (
     xp_for_level, get_evolution, get_box_interval, roll_box, roll_item,
     roll_event, check_sickness, apply_xp, do_prestige as _do_prestige_math,
-    roll_skin_drop, roll_skin_level, check_achievements, unlock_achievements,
+    roll_skin_drop, check_achievements, unlock_achievements,
     get_or_refresh_quests, update_quest_progress, hunger_percent,
 )
 
@@ -58,6 +58,9 @@ def _cabbit_to_dict(cab) -> dict:
         "last_box_day": cab.last_box_day,
         "banned_by": cab.banned_by,
         "banned_at": cab.banned_at,
+        "referred_by": cab.referred_by,
+        "referral_rewarded": cab.referral_rewarded,
+        "autocollect_until": cab.autocollect_until,
     }
 
 
@@ -139,6 +142,12 @@ async def create_cabbit(user_id: int, name: str) -> dict:
     async with get_session() as s:
         cab = await cabbit_repo.create(s, user_id, name)
         cab.rules_accepted = True
+        # Apply pending referral
+        ref_uid = _pending_referrals.pop(user_id, None)
+        if ref_uid and ref_uid != user_id:
+            ref_cab = await cabbit_repo.get(s, ref_uid)
+            if ref_cab and not ref_cab.dead:
+                cab.referred_by = ref_uid
         await cabbit_repo.save(s, cab)
         return _cabbit_to_dict(cab)
 
@@ -202,9 +211,9 @@ async def open_box(user_id: int) -> dict:
         if cab.dead:
             return {"ok": False, "error": "dead"}
 
-        # Block if in active duel
+        # Block if in any duel (pending or active)
         duel = await duel_repo.find_by_user(s, user_id)
-        if duel and duel.status == "active":
+        if duel:
             return {"ok": False, "error": "in_duel"}
 
         now = int(time.time())
@@ -276,24 +285,6 @@ async def open_box(user_id: int) -> dict:
             # Evolution change
             new_evo = get_evolution(new_level) if leveled else evo
             result["evolution"] = new_evo if leveled and new_evo != evo else None
-
-            # Skin for level-up
-            result["skin_level"] = None
-            if leveled and new_level % SKIN_LEVEL_INTERVAL == 0:
-                owned_skins = await skin_repo.get_user_skins(s, user_id)
-                level_pool_skins = await skin_repo.get_level_pool(s)
-                pool = [(sk.skin_id, {"level_weight": sk.level_weight, "display_name": sk.display_name,
-                                       "rarity": sk.rarity}) for sk in level_pool_skins]
-                lvl_skin = roll_skin_level(pool, owned_skins)
-                if lvl_skin:
-                    s_id, s_data = lvl_skin
-                    if s_id not in owned_skins:
-                        await skin_repo.add_user_skin(s, user_id, s_id)
-                    result["skin_level"] = {"skin_id": s_id, **s_data}
-                else:
-                    bonus_coins = 50
-                    cab.coins += bonus_coins
-                    result["skin_level_coins"] = bonus_coins
 
         result["actual_xp"] = actual_xp
         result["food_xp"] = food_xp
@@ -406,6 +397,12 @@ async def use_item(user_id: int, item: str) -> dict:
         if cab.dead:
             return {"ok": False, "error": "dead"}
 
+        # Block XP-affecting items during duel
+        if item == "Магнит":
+            duel = await duel_repo.find_by_user(s, user_id)
+            if duel:
+                return {"ok": False, "error": "in_duel"}
+
         inv = dict(cab.inventory or {})
         if inv.get(item, 0) <= 0:
             return {"ok": False, "error": "no_item"}
@@ -477,9 +474,9 @@ async def do_raid(user_id: int) -> dict:
         if cab.dead:
             return {"ok": False, "error": "dead"}
 
-        # Block if in active duel
+        # Block if in any duel (pending or active)
         duel = await duel_repo.find_by_user(s, user_id)
-        if duel and duel.status == "active":
+        if duel:
             return {"ok": False, "error": "in_duel"}
 
         now = int(time.time())
@@ -628,6 +625,26 @@ async def ban_cabbit(target_id: int, admin_id: int, reason: str) -> dict:
         return {"ok": True, "target_name": target_name, "cabbit": _cabbit_to_dict(cab)}
 
 
+async def unban_cabbit(target_id: int) -> dict:
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, target_id)
+        if not cab:
+            return {"ok": False, "error": "not_found"}
+        if not cab.banned:
+            return {"ok": False, "error": "not_banned"}
+
+        cab.dead = False
+        cab.banned = False
+        cab.ban_reason = None
+        cab.banned_by = None
+        cab.banned_at = None
+        cab.last_fed = int(time.time())
+        cab.warned_12h = False
+        cab.warned_23h = False
+        await cabbit_repo.save(s, cab)
+        return {"ok": True, "target_name": cab.name}
+
+
 async def add_xp(target_id: int, amount: int) -> dict:
     async with get_session() as s:
         cab = await cabbit_repo.get(s, target_id)
@@ -672,3 +689,81 @@ async def get_skin_file_id(cabbit_dict: dict) -> str | None:
         if skin:
             return skin.file_id
         return None
+
+
+_pending_referrals: dict[int, int] = {}  # user_id -> referrer_uid
+
+
+async def save_referrer(user_id: int, referrer_uid: int) -> None:
+    """Save who referred this user (only if no cabbit yet)."""
+    if user_id == referrer_uid:
+        return
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, user_id)
+        if cab:
+            return
+        _pending_referrals[user_id] = referrer_uid
+
+
+async def create_cabbit_with_referrer(user_id: int, name: str, referrer_uid: int | None) -> dict:
+    async with get_session() as s:
+        cab = await cabbit_repo.create(s, user_id, name)
+        cab.rules_accepted = True
+        if referrer_uid and referrer_uid != user_id:
+            # Verify referrer exists
+            ref_cab = await cabbit_repo.get(s, referrer_uid)
+            if ref_cab and not ref_cab.dead:
+                cab.referred_by = referrer_uid
+        await cabbit_repo.save(s, cab)
+        return _cabbit_to_dict(cab)
+
+
+AUTOCOLLECT_BONUS = 6 * 3600  # 6 hours per referral
+
+
+async def check_referral_reward(user_id: int) -> dict | None:
+    """Check if user hit level 5 and referrer should be rewarded. Returns referrer info if rewarded."""
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, user_id)
+        if not cab or cab.level < 5 or not cab.referred_by or cab.referral_rewarded:
+            return None
+
+        ref_cab = await cabbit_repo.get(s, cab.referred_by)
+        if not ref_cab or ref_cab.dead:
+            cab.referral_rewarded = True
+            await cabbit_repo.save(s, cab)
+            return None
+
+        # Grant autocollect bonus
+        now = int(time.time())
+        current_until = max(ref_cab.autocollect_until, now)
+        ref_cab.autocollect_until = current_until + AUTOCOLLECT_BONUS
+        await cabbit_repo.save(s, ref_cab)
+
+        cab.referral_rewarded = True
+        await cabbit_repo.save(s, cab)
+
+        return {
+            "referrer_uid": cab.referred_by,
+            "referrer_name": ref_cab.name,
+            "invited_name": cab.name,
+            "hours": AUTOCOLLECT_BONUS // 3600,
+        }
+
+
+async def get_autocollect_users() -> list[dict]:
+    """Get users with active autocollect whose box is ready."""
+    async with get_session() as s:
+        now = int(time.time())
+        from sqlalchemy import select, and_
+        from db.models import Cabbit
+        r = await s.execute(
+            select(Cabbit).where(
+                and_(
+                    Cabbit.dead == False,
+                    Cabbit.autocollect_until > now,
+                    Cabbit.box_ts <= now,
+                )
+            )
+        )
+        return [{"user_id": c.user_id} for c in r.scalars().all()]

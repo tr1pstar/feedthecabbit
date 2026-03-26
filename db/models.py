@@ -49,6 +49,9 @@ class Cabbit(Base):
     banned_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     banned_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int] = mapped_column(Integer, default=1)
+    referred_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    autocollect_until: Mapped[int] = mapped_column(Integer, default=0)
 
 class Skin(Base):
     __tablename__ = "skins"
@@ -79,6 +82,17 @@ class Duel(Base):
     moves: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[int] = mapped_column(Integer, default=0)
+
+class SeasonTop(Base):
+    __tablename__ = "season_tops"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    season_number: Mapped[int] = mapped_column(Integer, index=True)
+    place: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(String(20))
+    level: Mapped[int] = mapped_column(Integer)
+    xp: Mapped[int] = mapped_column(Integer)
+    prestige_stars: Mapped[int] = mapped_column(Integer, default=0)
+
 
 class Promo(Base):
     __tablename__ = "promos"

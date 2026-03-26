@@ -89,16 +89,21 @@ async def create_donate_invoice(user_id: int, amount: float, asset: str) -> dict
 async def check_invoice(invoice_id: int) -> dict | None:
     crypto = get_crypto()
     try:
-        invoices = await crypto.get_invoices(invoice_ids=invoice_id)
-        if invoices:
-            inv = invoices[0]
-            return {
-                "invoice_id": inv.invoice_id,
-                "status": inv.status,
-                "amount": float(inv.amount),
-                "asset": inv.asset,
-                "payload": inv.payload or "",
-            }
+        result = await crypto.get_invoices(invoice_ids=invoice_id)
+        # result can be a list or a single object depending on library version
+        if isinstance(result, list):
+            inv = result[0] if result else None
+        else:
+            inv = result
+        if inv is None:
+            return None
+        return {
+            "invoice_id": inv.invoice_id,
+            "status": inv.status,
+            "amount": float(inv.amount),
+            "asset": inv.asset,
+            "payload": getattr(inv, "payload", "") or "",
+        }
     except Exception as e:
         logger.error(f"check_invoice error: {e}")
     return None

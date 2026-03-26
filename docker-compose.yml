@@ -21,6 +21,8 @@ services:
       ADMIN_ID: ${ADMIN_ID}
       CRYPTOPAY_TOKEN: ${CRYPTOPAY_TOKEN}
       CRYPTOPAY_TESTNET: ${CRYPTOPAY_TESTNET:-true}
+      REQUIRED_CHANNEL: ${REQUIRED_CHANNEL:-}
+      NOTIFY_BOT_TOKEN: ${NOTIFY_BOT_TOKEN:-}
     volumes:
       - ./data:/app/data
     restart: unless-stopped
