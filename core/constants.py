@@ -151,6 +151,28 @@ ACHIEVEMENTS = [
     {"id": "casino_10",  "name": "Картёжник",       "emoji": "🃏", "desc": "Выиграй 10 раз в казино",       "stat": "casino_wins",     "need": 10,    "reward": 300},
     {"id": "xp_1000",    "name": "Тысячник",        "emoji": "💫", "desc": "Заработай 1000 XP суммарно",    "stat": "xp_earned_total", "need": 1000,  "reward": 200},
     {"id": "xp_10000",   "name": "Магнат",          "emoji": "💎", "desc": "Заработай 10000 XP суммарно",   "stat": "xp_earned_total", "need": 10000, "reward": 1000},
+    {"id": "xp_50000",   "name": "Олигарх",         "emoji": "🏦", "desc": "Заработай 50000 XP суммарно",   "stat": "xp_earned_total", "need": 50000, "reward": 3000},
+    # Коробки
+    {"id": "boxes_250",  "name": "Фанат коробок",   "emoji": "📬", "desc": "Открой 250 коробок",           "stat": "boxes_opened",    "need": 250,   "reward": 800},
+    {"id": "boxes_500",  "name": "Маньяк коробок",  "emoji": "🗃", "desc": "Открой 500 коробок",            "stat": "boxes_opened",    "need": 500,   "reward": 1500},
+    # Дуэли
+    {"id": "duel_3",     "name": "Боец",             "emoji": "🥋", "desc": "Выиграй 3 дуэли",              "stat": "duels_won",       "need": 3,     "reward": 200},
+    {"id": "duel_25",    "name": "Гладиатор",        "emoji": "🗡", "desc": "Выиграй 25 дуэлей",             "stat": "duels_won",       "need": 25,    "reward": 1000},
+    {"id": "duel_50",    "name": "Непобедимый",      "emoji": "🛡", "desc": "Выиграй 50 дуэлей",             "stat": "duels_won",       "need": 50,    "reward": 2000},
+    # Рейды
+    {"id": "raid_25",    "name": "Пират",            "emoji": "🏴‍☠️", "desc": "25 успешных рейдов",            "stat": "raids_ok",        "need": 25,    "reward": 800},
+    {"id": "raid_50",    "name": "Легенда рейдов",   "emoji": "⚓", "desc": "50 успешных рейдов",             "stat": "raids_ok",        "need": 50,    "reward": 1500},
+    # Казино
+    {"id": "casino_25",  "name": "Азартный",         "emoji": "🎲", "desc": "Выиграй 25 раз в казино",       "stat": "casino_wins",     "need": 25,    "reward": 600},
+    {"id": "casino_50",  "name": "Шулер",            "emoji": "🃏", "desc": "Выиграй 50 раз в казино",       "stat": "casino_wins",     "need": 50,    "reward": 1200},
+    {"id": "casino_lose_10", "name": "Неудачник",    "emoji": "😭", "desc": "Проиграй 10 раз в казино",      "stat": "casino_losses",   "need": 10,    "reward": 150},
+    {"id": "casino_lose_50", "name": "Донатер казино","emoji": "🤡", "desc": "Проиграй 50 раз в казино",     "stat": "casino_losses",   "need": 50,    "reward": 500},
+    # Убийства
+    {"id": "kill_3",     "name": "Серийный убийца",  "emoji": "☠️",  "desc": "Убей 3 кеббитов",              "stat": "kills",           "need": 3,     "reward": 500},
+    {"id": "kill_5",     "name": "Жнец",             "emoji": "💀", "desc": "Убей 5 кеббитов",               "stat": "kills",           "need": 5,     "reward": 1000},
+    # Престиж
+    {"id": "prestige_1", "name": "Перерождение",     "emoji": "🌟", "desc": "Сделай первый престиж",         "stat": "prestige_count",  "need": 1,     "reward": 500},
+    {"id": "prestige_3", "name": "Феникс",           "emoji": "🔥", "desc": "Сделай 3 престижа",             "stat": "prestige_count",  "need": 3,     "reward": 1500},
 ]
 
 # ─── Promo types ──────────────────────────────────────────────────────────────

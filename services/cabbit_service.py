@@ -462,6 +462,9 @@ async def do_prestige(user_id: int) -> dict:
         stars, reset = _do_prestige_math(cab.prestige_stars)
         for key, val in reset.items():
             setattr(cab, key, val)
+        stats = dict(cab.stats or {})
+        stats["prestige_count"] = stats.get("prestige_count", 0) + 1
+        cab.stats = stats
         await cabbit_repo.save(s, cab)
         return {"ok": True, "stars": stars, "cabbit": _cabbit_to_dict(cab)}
 
