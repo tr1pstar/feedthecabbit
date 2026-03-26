@@ -45,6 +45,14 @@ def hunger_bar(last_fed: int, sick: bool, sick_until: int) -> str:
     return f"{bar} {pct}%\n{mood}"
 
 
+_current_season: str = ""
+
+
+def set_current_season(name: str):
+    global _current_season
+    _current_season = name
+
+
 def cabbit_status(cabbit) -> str:
     """Accept either a dict or ORM Cabbit object."""
     if hasattr(cabbit, '__dict__') and hasattr(cabbit, 'user_id'):
@@ -97,6 +105,7 @@ def cabbit_status(cabbit) -> str:
         f"🥊 Жетонов: <b>{duel_tokens}</b>\n"
         f"🪙 Монеты: <b>{coins}</b>\n\n"
         f"{box_str}"
+        + (f"\n🗓 {_current_season}" if _current_season else "")
     )
 
 

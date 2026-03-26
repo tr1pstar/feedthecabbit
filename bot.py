@@ -63,6 +63,9 @@ async def main():
     season = await season_service.ensure_season(1)
     logger.info(f"Active season: #{season['number']} ({season['name']})")
 
+    from core.formatting import set_current_season
+    set_current_season(season['name'])
+
     # Start background tasks
     asyncio.create_task(hunger_checker(bot))
     asyncio.create_task(box_notifier(bot))
