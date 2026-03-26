@@ -1042,9 +1042,15 @@ async def _play_casino_and_show(target, uid: int, bet: int):
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     if isinstance(target, CallbackQuery):
+        # In group chats, delete old casino message to avoid spam
+        if target.message.chat.type != "private":
+            try:
+                await target.message.delete()
+            except Exception:
+                pass
         await target.message.answer(text=text, parse_mode="HTML", reply_markup=kb)
     else:
-        await target.answer(text, parse_mode="HTML", reply_markup=kb)
+        await _reply(target, text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data == "casino_menu")

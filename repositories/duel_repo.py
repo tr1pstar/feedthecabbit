@@ -14,11 +14,13 @@ async def get_for_update(session: AsyncSession, challenger_id: int) -> Duel | No
     return r.scalar_one_or_none()
 
 
-async def create(session: AsyncSession, challenger_id: int, target_id: int, stake: int) -> Duel:
+async def create(session: AsyncSession, challenger_id: int, target_id: int, stake: int,
+                  duel_type: str = "rps", chat_id: int | None = None) -> Duel:
     duel = Duel(
         challenger_id=challenger_id, target_id=target_id, stake=stake,
         round=1, scores={str(challenger_id): 0, str(target_id): 0},
         moves={}, status="pending", created_at=int(time.time()),
+        duel_type=duel_type, chat_id=chat_id,
     )
     session.add(duel)
     await session.flush()

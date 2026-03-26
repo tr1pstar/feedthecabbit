@@ -34,6 +34,9 @@ async def init_db():
         if "challenger_move" not in duel_cols_pre:
             await conn.execute(text("ALTER TABLE duels ADD COLUMN challenger_move VARCHAR(16)"))
             await conn.execute(text("ALTER TABLE duels ADD COLUMN target_move VARCHAR(16)"))
+        if "duel_type" not in duel_cols_pre:
+            await conn.execute(text("ALTER TABLE duels ADD COLUMN duel_type VARCHAR(8) DEFAULT 'rps'"))
+            await conn.execute(text("ALTER TABLE duels ADD COLUMN chat_id BIGINT"))
 
         # Migrate: add round_started_at to duels
         duel_cols = await conn.run_sync(

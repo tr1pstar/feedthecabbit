@@ -82,6 +82,8 @@ class Duel(Base):
     moves: Mapped[dict] = mapped_column(JSONB, default=dict)  # legacy, unused
     challenger_move: Mapped[str | None] = mapped_column(String(16), nullable=True)
     target_move: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    duel_type: Mapped[str] = mapped_column(String(8), default="rps")  # rps or dice
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # group chat for dice duels
     status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[int] = mapped_column(Integer, default=0)
     round_started_at: Mapped[int] = mapped_column(Integer, default=0)

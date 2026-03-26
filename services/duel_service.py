@@ -63,7 +63,7 @@ async def is_in_duel(user_id: int) -> bool:
         return duel is not None
 
 
-async def send_challenge(challenger_id: int, target_id: int, stake: int) -> dict:
+async def send_challenge(challenger_id: int, target_id: int, stake: int, duel_type: str = "rps", chat_id: int | None = None) -> dict:
     async with get_session() as s:
         c_cab = await cabbit_repo.get(s, challenger_id)
         t_cab = await cabbit_repo.get(s, target_id)
@@ -91,7 +91,7 @@ async def send_challenge(challenger_id: int, target_id: int, stake: int) -> dict
 
         c_cab.duel_tokens -= 1
         await cabbit_repo.save(s, c_cab)
-        await duel_repo.create(s, challenger_id, target_id, stake)
+        await duel_repo.create(s, challenger_id, target_id, stake, duel_type=duel_type, chat_id=chat_id)
 
         return {
             "ok": True,
@@ -278,3 +278,51 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
                 "winner_xp": winner_cab.xp, "loser_xp": loser_cab.xp,
             },
         }
+
+
+async def resolve_dice_duel(challenger_id: int, winner_id: int, loser_id: int, stake: int) -> dict:
+    """Resolve a dice duel — transfer XP from loser to winner."""
+    from sqlalchemy import text
+    async with get_session() as s:
+        await s.execute(text("DELETE FROM duels WHERE challenger_id = :cid"), {"cid": challenger_id})
+
+        winner_cab = await cabbit_repo.get(s, winner_id)
+        loser_cab = await cabbit_repo.get(s, loser_id)
+
+        if not winner_cab or not loser_cab or winner_cab.dead or loser_cab.dead:
+            return {"ok": True, "actual_stake": 0}
+
+        actual_stake = min(stake, loser_cab.xp)
+        if actual_stake < 1:
+            actual_stake = 1
+
+        _apply_xp_to_cab(winner_cab, actual_stake)
+        loser_cab.xp = max(0, loser_cab.xp - actual_stake)
+
+        w_stats = dict(winner_cab.stats or {})
+        l_stats = dict(loser_cab.stats or {})
+        w_stats["duels_won"] = w_stats.get("duels_won", 0) + 1
+        w_stats["xp_earned_total"] = w_stats.get("xp_earned_total", 0) + actual_stake
+        l_stats["duels_lost"] = l_stats.get("duels_lost", 0) + 1
+        winner_cab.stats = w_stats
+        loser_cab.stats = l_stats
+
+        _update_quest_progress_cab(winner_cab, "win_duel")
+        _update_quest_progress_cab(winner_cab, "earn_xp", actual_stake)
+
+        await cabbit_repo.save(s, winner_cab)
+        await cabbit_repo.save(s, loser_cab)
+
+        return {"ok": True, "actual_stake": actual_stake}
+
+
+async def cancel_dice_duel(challenger_id: int) -> dict:
+    """Cancel dice duel on tie — refund token."""
+    async with get_session() as s:
+        from sqlalchemy import text
+        await s.execute(text("DELETE FROM duels WHERE challenger_id = :cid"), {"cid": challenger_id})
+        c_cab = await cabbit_repo.get(s, challenger_id)
+        if c_cab:
+            c_cab.duel_tokens += 1
+            await cabbit_repo.save(s, c_cab)
+        return {"ok": True}
