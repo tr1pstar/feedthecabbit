@@ -42,6 +42,10 @@ class DuelSearchState(StatesGroup):
     waiting_query = State()
 
 
+class CasinoBetState(StatesGroup):
+    waiting_bet = State()
+
+
 class RenamingState(StatesGroup):
     waiting_new_name = State()
 
@@ -458,23 +462,11 @@ async def callback_cabbit(callback: CallbackQuery):
     # ── casino ────────────────────────────────────────────────────────────
     if action == "casino":
         xp = cab.get("xp", 0)
-        stakes = [s for s in [10, 50, 100, 250, 500] if s <= xp]
-        if not stakes:
+        if xp < 1:
             await callback.answer("У тебя недостаточно XP для казино!", show_alert=True)
             return
         await callback.answer()
-        buttons = [
-            [InlineKeyboardButton(text=f"🎰 {s} XP", callback_data=f"casino_bet:{s}")]
-            for s in stakes
-        ]
-        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
-        text = f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\nВыбери ставку:"
-        try:
-            await callback.message.edit_caption(caption=text, parse_mode="HTML",
-                                                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        except Exception:
-            await callback.message.edit_text(text=text, parse_mode="HTML",
-                                             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await _show_casino_menu(callback, xp)
         return
 
     # ── skins ─────────────────────────────────────────────────────────────
@@ -886,56 +878,167 @@ async def callback_cabbit(callback: CallbackQuery):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Casino bet callback (inline buttons from cabbit:casino)
+# Casino
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _casino_menu_kb(xp: int) -> InlineKeyboardMarkup:
+    stakes = [50, 100, 250, 500, 1000]
+    buttons = []
+    row = []
+    for s in stakes:
+        if s <= xp:
+            row.append(InlineKeyboardButton(text=f"{s}", callback_data=f"casino_bet:{s}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+    if row:
+        buttons.append(row)
+    buttons.append([
+        InlineKeyboardButton(text="💰 Всё (олл-ин)", callback_data=f"casino_bet:{xp}"),
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="✏️ Своя ставка", callback_data="casino_custom"),
+    ])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+CASINO_RULES = (
+    "💎💎💎 = x15 | 7️⃣7️⃣7️⃣ = x10\n"
+    "Три одинаковых = x5 | Два = x2\n"
+    "Ничего = проигрыш"
+)
+
+
+async def _show_casino_menu(target, xp: int):
+    """Show casino menu. target can be Message or CallbackQuery."""
+    text = f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\n\n{CASINO_RULES}\n\nВыбери ставку:"
+    kb = _casino_menu_kb(xp)
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            await target.message.answer(text=text, parse_mode="HTML", reply_markup=kb)
+    else:
+        await target.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "casino_custom")
+async def callback_casino_custom(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(CasinoBetState.waiting_bet)
+    await callback.message.edit_text(
+        "🎰 Введи свою ставку (число XP):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="casino_back")],
+        ]),
+    )
+
+
+@router.callback_query(F.data == "casino_back")
+async def callback_casino_back(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer()
+    uid = callback.from_user.id
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab:
+        return
+    await _show_casino_menu(callback, cab.get("xp", 0))
+
+
+@router.message(CasinoBetState.waiting_bet, F.text)
+async def casino_custom_bet(message: Message, state: FSMContext):
+    await state.clear()
+    try:
+        bet = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ Введи число. Попробуй /casino")
+        return
+    uid = message.from_user.id
+    await _play_casino_and_show(message, uid, bet)
+
+
+async def _play_casino_and_show(target, uid: int, bet: int):
+    """Play casino and send result as a new message."""
+    result = await casino_service.play_casino(uid, bet)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        err_text = {
+            "min_bet": "❌ Минимальная ставка: 1 XP",
+            "max_bet": "❌ Максимальная ставка: 5000 XP",
+            "insufficient_xp": f"❌ Недостаточно XP! У тебя: {result.get('xp', 0)}",
+            "in_duel": "⚔️ Нельзя играть в казино во время дуэли!",
+        }.get(err, "❌ Ошибка.")
+        if isinstance(target, CallbackQuery):
+            await target.answer(err_text, show_alert=True)
+        else:
+            await target.answer(err_text)
+        return
+
+    symbols = result["symbols"]
+    mult = result["multiplier"]
+    line = " | ".join(symbols)
+    cab = result.get("cabbit", {})
+    xp = cab.get("xp", 0)
+
+    if result["won"]:
+        net = result["net_xp"]
+        text = (
+            f"🎰 <b>КАЗИНО</b>\n\n"
+            f"[ {line} ]\n\n"
+            f"🎉 <b>ВЫИГРЫШ x{mult:.0f}!</b>\n"
+            f"💰 +{net} XP"
+        )
+        if result.get("leveled_up"):
+            text += f"\n🎉 <b>УРОВЕНЬ {result['new_level']}!</b>"
+    else:
+        text = (
+            f"🎰 <b>КАЗИНО</b>\n\n"
+            f"[ {line} ]\n\n"
+            f"💀 Проигрыш!\n"
+            f"💸 -{bet} XP"
+        )
+
+    new_achs = result.get("new_achievements", [])
+    if new_achs:
+        text += f"\n\n{'━' * 20}\n🏆 <b>ДОСТИЖЕНИЕ!</b>"
+        for a in new_achs:
+            text += f"\n  {a['emoji']} <b>{a['name']}</b> — +{a['reward']} XP"
+        text += f"\n{'━' * 20}"
+
+    text += f"\n\n💰 Баланс: <b>{xp} XP</b>"
+
+    # Buttons: repeat same bet + casino menu + back
+    repeat_bet = min(bet, xp)
+    buttons = []
+    if repeat_bet >= 1:
+        buttons.append([InlineKeyboardButton(text=f"🔄 Повторить ({bet} XP)", callback_data=f"casino_bet:{bet}")])
+    buttons.append([InlineKeyboardButton(text="🎰 Другая ставка", callback_data="casino_menu")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    if isinstance(target, CallbackQuery):
+        await target.message.answer(text=text, parse_mode="HTML", reply_markup=kb)
+    else:
+        await target.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "casino_menu")
+async def callback_casino_menu(callback: CallbackQuery):
+    await callback.answer()
+    uid = callback.from_user.id
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab or cab.get("dead"):
+        return
+    await _show_casino_menu(callback, cab.get("xp", 0))
+
 
 @router.callback_query(F.data.startswith("casino_bet:"))
 async def callback_casino_bet(callback: CallbackQuery):
     uid = callback.from_user.id
     bet = int(callback.data.split(":")[1])
-
-    result = await casino_service.play_casino(uid, bet)
-    if not result.get("ok"):
-        err = result.get("error", "")
-        if err == "insufficient_xp":
-            await callback.answer(f"Не хватает XP! У тебя {result.get('xp', 0)}.", show_alert=True)
-        elif err == "in_duel":
-            await callback.answer("⚔️ Нельзя играть в казино во время дуэли!", show_alert=True)
-        else:
-            await callback.answer("❌ Ошибка.", show_alert=True)
-        return
-
     await callback.answer()
-    symbols = result["symbols"]
-    mult = result["multiplier"]
-    line = " | ".join(symbols)
-
-    cab = await cabbit_service.get_cabbit(uid)
-
-    if result["won"]:
-        net = result["net_xp"]
-        text = (
-            f"🎰 [ {line} ]\n\n"
-            f"🎉 <b>ВЫИГРЫШ x{mult:.0f}!</b>\n"
-            f"💰 +{net} XP\n"
-        )
-        if result.get("leveled_up"):
-            text += f"🎉 <b>УРОВЕНЬ {result['new_level']}!</b>\n"
-    else:
-        text = (
-            f"🎰 [ {line} ]\n\n"
-            f"😢 Проигрыш...\n"
-            f"💸 -{bet} XP\n"
-        )
-
-    new_achs = result.get("new_achievements", [])
-    if new_achs:
-        text += f"\n{'━' * 20}\n🏆 <b>ДОСТИЖЕНИЕ!</b>"
-        for a in new_achs:
-            text += f"\n  {a['emoji']} <b>{a['name']}</b> — +{a['reward']} XP"
-
-    text += f"\n\n{cabbit_status(cab)}"
-    await _edit_card(callback, cab, text)
+    await _play_casino_and_show(callback, uid, bet)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1874,18 +1977,10 @@ async def handle_reply_keyboard(message: Message):
             await message.answer("❌ Нет кеббита. /cabbit")
             return
         xp = cab.get("xp", 0)
-        stakes = [s for s in [10, 50, 100, 250, 500] if s <= xp]
-        if not stakes:
+        if xp < 1:
             await message.answer("❌ Недостаточно XP для казино!")
             return
-        buttons = [[InlineKeyboardButton(text=f"🎰 {s} XP", callback_data=f"casino_bet:{s}")]
-                   for s in stakes]
-        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
-        await message.answer(
-            f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\nВыбери ставку:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        )
+        await _show_casino_menu(message, xp)
 
     elif text == "⚔️ Бой":
         cab = await cabbit_service.get_cabbit(uid)
