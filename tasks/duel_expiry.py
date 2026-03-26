@@ -8,13 +8,19 @@ import logging
 import time
 
 from aiogram import Bot
+from sqlalchemy import delete as sql_delete
 
 from db.engine import get_session
+from db.models import Duel
 from repositories import cabbit_repo, duel_repo
 from core.constants import DUEL_ACCEPT_TIMEOUT, DUEL_MOVE_TIMEOUT
 from core.game_math import apply_xp
 
 logger = logging.getLogger(__name__)
+
+
+async def _delete_duel(session, challenger_id: int):
+    await session.execute(sql_delete(Duel).where(Duel.challenger_id == challenger_id))
 
 
 async def duel_expiry_checker(bot: Bot) -> None:
@@ -41,9 +47,7 @@ async def _expire_pending(bot: Bot, now: int):
                 c_cab.duel_tokens += 1
                 await cabbit_repo.save(session, c_cab)
             expired_info.append((duel.challenger_id, duel.target_id))
-            from sqlalchemy import delete as sql_delete
-            from db.models import Duel
-            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
+            await _delete_duel(session, duel.challenger_id)
 
     for challenger_id, target_id in expired_info:
         try:
@@ -85,13 +89,10 @@ async def _expire_active(bot: Bot, now: int):
             t_name = t_cab.name if t_cab else "?"
 
             if not c_moved and not t_moved:
-                # Nobody moved — cancel, refund token
                 if c_cab:
                     c_cab.duel_tokens += 1
                     await cabbit_repo.save(session, c_cab)
-                from sqlalchemy import delete as sql_delete
-            from db.models import Duel
-            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
+                await _delete_duel(session, challenger_id)
                 results.append({
                     "type": "cancel",
                     "challenger_id": challenger_id,
@@ -100,7 +101,6 @@ async def _expire_active(bot: Bot, now: int):
                     "t_name": t_name,
                 })
             else:
-                # One player moved — they win
                 if c_moved:
                     winner_cab, loser_cab = c_cab, t_cab
                     winner_id, loser_id = challenger_id, target_id
@@ -110,9 +110,7 @@ async def _expire_active(bot: Bot, now: int):
                     winner_id, loser_id = target_id, challenger_id
                     winner_name, loser_name = t_name, c_name
 
-                from sqlalchemy import delete as sql_delete
-            from db.models import Duel
-            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
+                await _delete_duel(session, challenger_id)
 
                 if not winner_cab or not loser_cab or winner_cab.dead or loser_cab.dead:
                     if c_cab and not c_cab.dead:
@@ -162,11 +160,7 @@ async def _expire_active(bot: Bot, now: int):
                 try:
                     await bot.send_message(
                         chat_id=uid,
-                        text=(
-                            "⏰ <b>Дуэль отменена!</b>\n\n"
-                            "Никто не сделал ход за 3 минуты.\n"
-                            "Жетон возвращён."
-                        ),
+                        text="⏰ <b>Дуэль отменена!</b>\n\nНикто не сделал ход за 3 минуты.\nЖетон возвращён.",
                         parse_mode="HTML",
                     )
                 except Exception:
