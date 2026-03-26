@@ -565,7 +565,7 @@ async def cmd_skindrop(message: Message):
 
     skin_id = args[1]
     try:
-        chance = float(args[2])
+        chance = float(args[2].replace(",", "."))
     except ValueError:
         await message.answer("Шанс должен быть числом (например 1.5)")
         return
