@@ -343,10 +343,10 @@ async def callback_cabbit(callback: CallbackQuery):
             f"👥 <b>Пригласи друга!</b>\n\n"
             f"Когда друг достигнет <b>5 уровня</b> — "
             f"📦 автосбор коробок на 6ч!\n\n"
+            f"\n\n🔗 {ref_link}"
             f"{ac_text}{refs_text}"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔗 Пригласить", url=ref_link)],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
         ])
         try:
