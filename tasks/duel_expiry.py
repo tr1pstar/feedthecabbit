@@ -77,11 +77,10 @@ async def _expire_active(bot: Bot, now: int):
         for duel in expired:
             challenger_id = duel.challenger_id
             target_id = duel.target_id
-            moves = dict(duel.moves or {})
             stake = duel.stake
 
-            c_moved = str(challenger_id) in moves
-            t_moved = str(target_id) in moves
+            c_moved = duel.challenger_move is not None
+            t_moved = duel.target_move is not None
 
             c_cab = await cabbit_repo.get(session, challenger_id)
             t_cab = await cabbit_repo.get(session, target_id)

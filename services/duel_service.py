@@ -118,11 +118,10 @@ async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
             return {"ok": False, "error": "cabbit_dead"}
 
         import time as _time
-        from sqlalchemy.orm.attributes import flag_modified
         duel.status = "active"
-        duel.moves = {}
+        duel.challenger_move = None
+        duel.target_move = None
         duel.round_started_at = int(_time.time())
-        flag_modified(duel, "moves")
         await duel_repo.save(s, duel)
 
         return {
@@ -157,47 +156,39 @@ async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
 
 
 async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
-    from sqlalchemy import text
     import time as _time
-    import json
-
-    player_key = str(player_id)
 
     async with get_session() as s:
-        # Step 1: Lock row and read current state
-        result = await s.execute(
-            text("SELECT target_id, stake, moves, status FROM duels WHERE challenger_id = :cid FOR UPDATE"),
-            {"cid": challenger_id},
-        )
-        row = result.mappings().first()
-
-        if not row or row["status"] != "active":
+        # Load duel with ORM — simple VARCHAR columns, no JSONB tricks
+        duel = await duel_repo.get_for_update(s, challenger_id)
+        if not duel or duel.status != "active":
             return {"ok": False, "error": "no_active_duel"}
 
-        target_id = row["target_id"]
+        target_id = duel.target_id
         if player_id not in (challenger_id, target_id):
             return {"ok": False, "error": "not_participant"}
 
-        moves = dict(row["moves"] or {})
-        if player_key in moves:
-            return {"ok": False, "error": "already_moved"}
+        # Write move to the correct column
+        is_challenger = (player_id == challenger_id)
+        if is_challenger:
+            if duel.challenger_move:
+                return {"ok": False, "error": "already_moved"}
+            duel.challenger_move = move
+        else:
+            if duel.target_move:
+                return {"ok": False, "error": "already_moved"}
+            duel.target_move = move
 
-        # Step 2: Add move and write back
-        moves[player_key] = move
-        await s.execute(
-            text("UPDATE duels SET moves = cast(:m as jsonb) WHERE challenger_id = :cid"),
-            {"m": json.dumps(moves), "cid": challenger_id},
-        )
-        # Commit NOW so other player sees this move
-        await s.commit()
+        await duel_repo.save(s, duel)
 
-        if len(moves) < 2:
+        # Check if both moved
+        if not duel.challenger_move or not duel.target_move:
             return {"ok": True, "waiting": True, "resolved": False, "move": move, "target_id": target_id}
 
         # Both moves in — resolve
-        c_move = moves[str(challenger_id)]
-        t_move = moves[str(target_id)]
-        stake = row["stake"]
+        c_move = duel.challenger_move
+        t_move = duel.target_move
+        stake = duel.stake
 
         c_cab = await cabbit_repo.get(s, challenger_id)
         t_cab = await cabbit_repo.get(s, target_id)
@@ -207,10 +198,10 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         outcome = resolve_duel_move(c_move, t_move)
 
         if outcome == "tie":
-            await s.execute(
-                text("UPDATE duels SET moves = cast('{}' as jsonb), round_started_at = :ts WHERE challenger_id = :cid"),
-                {"ts": int(_time.time()), "cid": challenger_id},
-            )
+            duel.challenger_move = None
+            duel.target_move = None
+            duel.round_started_at = int(_time.time())
+            await duel_repo.save(s, duel)
             return {
                 "ok": True, "waiting": False, "resolved": True,
                 "result": {
@@ -220,11 +211,9 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
                 },
             }
 
-        # Winner determined — finish
-        await s.execute(
-            text("DELETE FROM duels WHERE challenger_id = :cid"),
-            {"cid": challenger_id},
-        )
+        # Winner determined — delete duel
+        from sqlalchemy import text
+        await s.execute(text("DELETE FROM duels WHERE challenger_id = :cid"), {"cid": challenger_id})
 
         if not c_cab or not t_cab or c_cab.dead or t_cab.dead:
             return {
@@ -243,7 +232,6 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
             winner_cab, loser_cab = t_cab, c_cab
             winner_uid, loser_uid = target_id, challenger_id
 
-        stake = duel.stake
         actual_stake = min(stake, loser_cab.xp)
         if actual_stake < 1:
             actual_stake = 1

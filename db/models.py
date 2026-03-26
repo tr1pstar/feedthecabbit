@@ -79,7 +79,9 @@ class Duel(Base):
     stake: Mapped[int] = mapped_column(Integer)
     round: Mapped[int] = mapped_column(Integer, default=1)
     scores: Mapped[dict] = mapped_column(JSONB, default=dict)
-    moves: Mapped[dict] = mapped_column(JSONB, default=dict)
+    moves: Mapped[dict] = mapped_column(JSONB, default=dict)  # legacy, unused
+    challenger_move: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    target_move: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[int] = mapped_column(Integer, default=0)
     round_started_at: Mapped[int] = mapped_column(Integer, default=0)
