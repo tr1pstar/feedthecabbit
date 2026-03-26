@@ -55,6 +55,18 @@ async def get_expired_pending(session: AsyncSession, threshold: int) -> list[Due
     return list(r.scalars().all())
 
 
+async def get_expired_active(session: AsyncSession, threshold: int) -> list[Duel]:
+    """Get active duels where round_started_at < threshold (move timeout)."""
+    r = await session.execute(
+        select(Duel).where(
+            Duel.status == "active",
+            Duel.round_started_at > 0,
+            Duel.round_started_at < threshold,
+        )
+    )
+    return list(r.scalars().all())
+
+
 async def get_all(session: AsyncSession) -> list[Duel]:
     r = await session.execute(select(Duel))
     return list(r.scalars().all())

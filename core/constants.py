@@ -116,7 +116,8 @@ REELS = ["🍒", "🍋", "🔔", "💎", "7️⃣", "🍀"]
 
 # ─── Duel ─────────────────────────────────────────────────────────────────────
 
-DUEL_ACCEPT_TIMEOUT = 60  # seconds — auto-cancel if not accepted
+DUEL_ACCEPT_TIMEOUT = 60   # seconds — auto-cancel if not accepted
+DUEL_MOVE_TIMEOUT   = 180  # 3 minutes — auto-resolve if no move
 
 BEATS = {"камень": "ножницы", "ножницы": "бумага", "бумага": "камень"}
 EMOJI = {"камень": "✊", "ножницы": "✌️", "бумага": "🖐"}

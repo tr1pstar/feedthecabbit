@@ -82,6 +82,7 @@ class Duel(Base):
     moves: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[int] = mapped_column(Integer, default=0)
+    round_started_at: Mapped[int] = mapped_column(Integer, default=0)
 
 class SeasonTop(Base):
     __tablename__ = "season_tops"

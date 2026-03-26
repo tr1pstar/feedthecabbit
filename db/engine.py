@@ -27,6 +27,17 @@ async def init_db():
                 "UPDATE cabbits SET uid = nextval('cabbit_uid_seq') WHERE uid IS NULL"
             ))
             await conn.execute(text("ALTER TABLE cabbits ALTER COLUMN uid SET NOT NULL"))
+        # Migrate: add round_started_at to duels
+        duel_cols = await conn.run_sync(
+            lambda sync_conn: [
+                r[0] for r in sync_conn.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name='duels'")
+                )
+            ]
+        )
+        if "round_started_at" not in duel_cols:
+            await conn.execute(text("ALTER TABLE duels ADD COLUMN round_started_at INTEGER DEFAULT 0"))
+
         if "referred_by" not in cols:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referred_by BIGINT"))
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referral_rewarded BOOLEAN DEFAULT false"))

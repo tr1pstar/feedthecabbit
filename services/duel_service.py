@@ -115,8 +115,10 @@ async def accept_duel(challenger_id: int, acceptor_id: int) -> dict:
                 await cabbit_repo.save(s, c_cab)
             return {"ok": False, "error": "cabbit_dead"}
 
+        import time as _time
         duel.status = "active"
         duel.moves = {}
+        duel.round_started_at = int(_time.time())
         await duel_repo.save(s, duel)
 
         return {
@@ -184,7 +186,9 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
         outcome = resolve_duel_move(c_move, t_move)
 
         if outcome == "tie":
+            import time as _time
             duel.moves = {}
+            duel.round_started_at = int(_time.time())
             await duel_repo.save(s, duel)
             return {
                 "ok": True, "waiting": False, "resolved": True,
