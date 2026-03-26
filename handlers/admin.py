@@ -353,10 +353,10 @@ async def cmd_addxp(message: Message):
         return
 
     args = (message.text or "").split(maxsplit=3)
-    if len(args) < 4:
+    if len(args) < 3:
         await message.answer(
-            "Использование: /addxp <user_id> <кол-во XP> <причина>\n\n"
-            "Пример: /addxp 123456789 500 Компенсация за баг с дуэлями"
+            "Использование: /addxp user_id кол-во [причина]\n\n"
+            "Пример: /addxp 123456789 500 Компенсация"
         )
         return
 
@@ -366,7 +366,7 @@ async def cmd_addxp(message: Message):
     except ValueError:
         await message.answer("❌ Количество XP должно быть числом.")
         return
-    reason = args[3].strip()
+    reason = args[3].strip() if len(args) > 3 else "админ"
 
     if amount == 0:
         await message.answer("❌ Количество XP не может быть 0.")
@@ -429,9 +429,9 @@ async def cmd_addcoins(message: Message):
         return
 
     args = (message.text or "").split(maxsplit=3)
-    if len(args) < 4:
+    if len(args) < 3:
         await message.answer(
-            "Использование: /addcoins <user_id> <кол-во> <причина>")
+            "Использование: /addcoins user_id кол-во [причина]")
         return
 
     target_uid = int(args[1])
@@ -440,7 +440,7 @@ async def cmd_addcoins(message: Message):
     except ValueError:
         await message.answer("Количество должно быть числом.")
         return
-    reason = args[3]
+    reason = args[3] if len(args) > 3 else "админ"
 
     result = await cabbit_service.add_coins(target_uid, amount)
     if not result.get("ok"):
