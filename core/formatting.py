@@ -120,7 +120,10 @@ def cabbit_keyboard(cabbit) -> InlineKeyboardMarkup:
     ])
     if level >= 30:
         buttons.append([InlineKeyboardButton(text="🌟 Престиж", callback_data="cabbit:prestige")])
-    buttons.append([InlineKeyboardButton(text="👥 Пригласить друга", callback_data="cabbit:referral")])
+    buttons.append([
+        InlineKeyboardButton(text="📊 Статистика", callback_data="cabbit:stats"),
+        InlineKeyboardButton(text="👥 Пригласить друга", callback_data="cabbit:referral"),
+    ])
     buttons.append([InlineKeyboardButton(text="🔄 Обновить", callback_data="cabbit:refresh")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

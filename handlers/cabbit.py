@@ -270,6 +270,53 @@ async def callback_cabbit(callback: CallbackQuery):
             await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
         return
 
+    # ── stats ─────────────────────────────────────────────────────────────
+    if action == "stats":
+        await callback.answer()
+        stats = cab.get("stats", {})
+        food_counts = cab.get("food_counts", {})
+        total_fed = sum(food_counts.values())
+
+        boxes = stats.get("boxes_opened", 0)
+        duels_won = stats.get("duels_won", 0)
+        duels_lost = stats.get("duels_lost", 0)
+        duels_total = duels_won + duels_lost
+        raids_ok = stats.get("raids_ok", 0)
+        raids_fail = stats.get("raids_fail", 0)
+        raids_total = raids_ok + raids_fail
+        casino_wins = stats.get("casino_wins", 0)
+        casino_losses = stats.get("casino_losses", 0)
+        casino_xp_won = stats.get("casino_xp_won", 0)
+        casino_xp_lost = stats.get("casino_xp_lost", 0)
+        xp_total = stats.get("xp_earned_total", 0)
+        kills = stats.get("kills", 0)
+        max_level = stats.get("max_level", cab.get("level", 1))
+
+        text = (
+            f"📊 <b>Статистика {cab['name']}</b>\n\n"
+            f"📦 Коробок открыто: <b>{boxes}</b>\n"
+            f"🍗 Покормлено раз: <b>{total_fed}</b>\n"
+            f"💫 Всего заработано XP: <b>{xp_total}</b>\n"
+            f"🏔 Макс. уровень: <b>{max_level}</b>\n\n"
+            f"⚔️ <b>Бой</b>\n"
+            f"🥊 Дуэли: <b>{duels_won}W / {duels_lost}L</b> ({duels_total})\n"
+            f"🏴‍☠️ Рейды: <b>{raids_ok}✓ / {raids_fail}✗</b> ({raids_total})\n"
+            f"🔪 Убийств: <b>{kills}</b>\n\n"
+            f"🎰 <b>Казино</b>\n"
+            f"Побед: <b>{casino_wins}</b> | Поражений: <b>{casino_losses}</b>\n"
+            f"Выиграно: <b>+{casino_xp_won} XP</b>\n"
+            f"Проиграно: <b>-{casino_xp_lost} XP</b>\n"
+            f"Баланс: <b>{casino_xp_won - casino_xp_lost:+d} XP</b>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+        ])
+        try:
+            await callback.message.edit_caption(caption=text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+        return
+
     # ── inventory ─────────────────────────────────────────────────────────
     if action == "inventory":
         await callback.answer()

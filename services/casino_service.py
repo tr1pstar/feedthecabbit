@@ -83,6 +83,7 @@ async def play_casino(user_id: int, bet: int) -> dict:
             net = win - bet
             leveled, new_level = _apply_xp_to_cab(cab, net)
             stats["casino_wins"] = stats.get("casino_wins", 0) + 1
+            stats["casino_xp_won"] = stats.get("casino_xp_won", 0) + net
             stats["xp_earned_total"] = stats.get("xp_earned_total", 0) + net
             cab.stats = stats
 
@@ -93,6 +94,7 @@ async def play_casino(user_id: int, bet: int) -> dict:
         else:
             cab.xp = max(0, cab.xp - bet)
             stats["casino_losses"] = stats.get("casino_losses", 0) + 1
+            stats["casino_xp_lost"] = stats.get("casino_xp_lost", 0) + bet
             cab.stats = stats
 
             result["won"] = False
