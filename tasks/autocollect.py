@@ -41,6 +41,6 @@ async def autocollect_task(bot: Bot):
                         await bot.send_message(
                             chat_id=uid, text=text, parse_mode="HTML")
                 except Exception as e:
-                    logger.debug(f"autocollect {uid}: {e}")
+                    logger.warning(f"autocollect {uid}: {e}")
         except Exception as e:
             logger.error(f"autocollect task error: {e}")

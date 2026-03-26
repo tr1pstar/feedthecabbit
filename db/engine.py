@@ -51,7 +51,9 @@ async def init_db():
 
         if "referred_by" not in cols:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referred_by BIGINT"))
+        if "referral_rewarded" not in cols:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN referral_rewarded BOOLEAN DEFAULT false"))
+        if "autocollect_until" not in cols:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN autocollect_until INTEGER DEFAULT 0"))
 
 @asynccontextmanager

@@ -778,12 +778,13 @@ async def get_autocollect_users() -> list[dict]:
         now = int(time.time())
         from sqlalchemy import select, and_
         from db.models import Cabbit
+        from sqlalchemy import or_
         r = await s.execute(
             select(Cabbit).where(
                 and_(
                     Cabbit.dead == False,
                     Cabbit.autocollect_until > now,
-                    Cabbit.box_ts <= now,
+                    or_(Cabbit.box_available == True, Cabbit.box_ts <= now),
                 )
             )
         )
