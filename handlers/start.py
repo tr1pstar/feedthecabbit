@@ -7,6 +7,7 @@ from aiogram.filters import Command
 
 from config import REQUIRED_CHANNEL
 from core.formatting import get_reply_keyboard
+from core.middleware import _verified
 
 router = Router()
 
@@ -70,6 +71,7 @@ async def callback_check_sub(callback: CallbackQuery):
         member = await callback.bot.get_chat_member(
             chat_id=REQUIRED_CHANNEL, user_id=callback.from_user.id)
         if member.status in ("member", "administrator", "creator"):
+            _verified.add(callback.from_user.id)
             await callback.answer("✅ Подписка подтверждена!")
             await callback.message.edit_text(
                 "✅ Подписка подтверждена!\n\n"

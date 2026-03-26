@@ -1,5 +1,6 @@
 """
-core/middleware.py — subscription check middleware with cache.
+core/middleware.py — subscription check middleware.
+Checks subscription only on first interaction and when user unsubscribes.
 """
 import time
 from typing import Any, Awaitable, Callable, Dict
@@ -9,9 +10,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 
 from config import REQUIRED_CHANNEL
 
-# Cache: user_id -> timestamp when subscription was confirmed
-_sub_cache: dict[int, float] = {}
-_CACHE_TTL = 300  # 5 minutes
+# Verified users: user_id -> True (stays until bot restart or user unsubscribes)
+_verified: set[int] = set()
 
 
 class SubscriptionMiddleware(BaseMiddleware):
@@ -33,28 +33,27 @@ class SubscriptionMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        # Let check_sub callback through without subscription
+        # Let check_sub callback through
         if isinstance(event, CallbackQuery) and event.data == "check_sub":
             return await handler(event, data)
 
-        # Check cache first
-        now = time.time()
-        cached = _sub_cache.get(user_id)
-        if cached and now - cached < _CACHE_TTL:
+        # Already verified — pass through
+        if user_id in _verified:
             return await handler(event, data)
 
-        # Check subscription via API
+        # First interaction or after cache clear — check API
         bot = data["bot"]
         try:
             member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
             if member.status in ("member", "administrator", "creator"):
-                _sub_cache[user_id] = now
+                _verified.add(user_id)
                 return await handler(event, data)
         except Exception:
-            # API error — let through to avoid false blocks
-            _sub_cache[user_id] = now
+            # API error — don't block the user
+            _verified.add(user_id)
             return await handler(event, data)
 
+        # Not subscribed — show prompt
         channel_name = REQUIRED_CHANNEL.replace("@", "")
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Подписаться", url=f"https://t.me/{channel_name}")],
@@ -72,3 +71,8 @@ class SubscriptionMiddleware(BaseMiddleware):
             await event.answer("⚠️ Подпишись на канал!", show_alert=True)
 
         return None
+
+
+def unverify_user(user_id: int):
+    """Call when user leaves the channel to force re-check."""
+    _verified.discard(user_id)

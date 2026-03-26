@@ -5,12 +5,13 @@ NO mail imports. All game handlers from handlers/, background tasks from tasks/.
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import ChatMemberUpdated
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, REQUIRED_CHANNEL
 from db.engine import init_db
-from core.middleware import SubscriptionMiddleware
+from core.middleware import SubscriptionMiddleware, unverify_user
 
 from handlers import start, cabbit, combat, casino, quests, admin, promo, payment, feedback
 from tasks.reaction_game import router as reaction_router
@@ -34,6 +35,15 @@ async def main():
     dp.message.middleware(SubscriptionMiddleware())
     dp.callback_query.middleware(SubscriptionMiddleware())
 
+    # Detect channel leave — force re-check on next interaction
+    channel_router = Router()
+
+    @channel_router.chat_member()
+    async def on_chat_member(event: ChatMemberUpdated):
+        if event.new_chat_member.status in ("left", "kicked"):
+            unverify_user(event.new_chat_member.user.id)
+
+    dp.include_router(channel_router)
     dp.include_router(start.router)
     dp.include_router(admin.router)
     dp.include_router(cabbit.router)
@@ -61,7 +71,7 @@ async def main():
     asyncio.create_task(autocollect_task(bot))
 
     logger.info("Bot started.")
-    await dp.start_polling(bot, skip_updates=True)
+    await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query", "chat_member"])
 
 
 if __name__ == "__main__":
