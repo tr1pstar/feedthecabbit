@@ -34,10 +34,9 @@ async def save(session: AsyncSession, cabbit: Cabbit) -> None:
     await session.flush()
 
 async def delete(session: AsyncSession, user_id: int) -> None:
-    cab = await get(session, user_id)
-    if cab:
-        await session.delete(cab)
-        await session.flush()
+    from sqlalchemy import delete as sql_delete
+    await session.execute(sql_delete(Cabbit).where(Cabbit.user_id == user_id))
+    await session.flush()
 
 async def get_all_alive(session: AsyncSession) -> list[Cabbit]:
     r = await session.execute(select(Cabbit).where(Cabbit.dead == False))

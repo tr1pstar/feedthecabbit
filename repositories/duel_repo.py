@@ -36,7 +36,13 @@ async def save(session: AsyncSession, duel: Duel) -> None:
 async def delete(session: AsyncSession, challenger_id: int) -> Duel | None:
     duel = await get(session, challenger_id)
     if duel:
-        await session.delete(duel)
+        await session.execute(
+            select(Duel).where(Duel.challenger_id == challenger_id)
+        )  # ensure loaded
+        from sqlalchemy import delete as sql_delete
+        await session.execute(
+            sql_delete(Duel).where(Duel.challenger_id == challenger_id)
+        )
         await session.flush()
     return duel
 

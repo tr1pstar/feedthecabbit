@@ -20,7 +20,9 @@ async def delete(session: AsyncSession, code: str) -> bool:
     promo = await get(session, code)
     if not promo:
         return False
-    await session.delete(promo)
+    from sqlalchemy import delete as sql_delete
+    from db.models import Promo
+    await session.execute(sql_delete(Promo).where(Promo.code == code))
     await session.flush()
     return True
 

@@ -41,7 +41,9 @@ async def _expire_pending(bot: Bot, now: int):
                 c_cab.duel_tokens += 1
                 await cabbit_repo.save(session, c_cab)
             expired_info.append((duel.challenger_id, duel.target_id))
-            await session.delete(duel)
+            from sqlalchemy import delete as sql_delete
+            from db.models import Duel
+            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
 
     for challenger_id, target_id in expired_info:
         try:
@@ -87,7 +89,9 @@ async def _expire_active(bot: Bot, now: int):
                 if c_cab:
                     c_cab.duel_tokens += 1
                     await cabbit_repo.save(session, c_cab)
-                await session.delete(duel)
+                from sqlalchemy import delete as sql_delete
+            from db.models import Duel
+            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
                 results.append({
                     "type": "cancel",
                     "challenger_id": challenger_id,
@@ -106,7 +110,9 @@ async def _expire_active(bot: Bot, now: int):
                     winner_id, loser_id = target_id, challenger_id
                     winner_name, loser_name = t_name, c_name
 
-                await session.delete(duel)
+                from sqlalchemy import delete as sql_delete
+            from db.models import Duel
+            await session.execute(sql_delete(Duel).where(Duel.challenger_id == duel.challenger_id))
 
                 if not winner_cab or not loser_cab or winner_cab.dead or loser_cab.dead:
                     if c_cab and not c_cab.dead:

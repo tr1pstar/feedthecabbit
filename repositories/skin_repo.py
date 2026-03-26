@@ -31,7 +31,9 @@ async def remove(session: AsyncSession, skin_id: str) -> bool:
     skin = await get(session, skin_id)
     if not skin:
         return False
-    await session.delete(skin)
+    from sqlalchemy import delete as sql_delete
+    from db.models import Skin
+    await session.execute(sql_delete(Skin).where(Skin.skin_id == skin_id))
     await session.flush()
     return True
 
