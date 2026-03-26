@@ -165,16 +165,18 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
     async with get_session() as s:
         # Single atomic UPDATE: add move only if player hasn't moved yet
         # Returns the updated moves dict
+        import json
+        move_patch = json.dumps({player_key: move})
         result = await s.execute(
             text("""
                 UPDATE duels
-                SET moves = moves || jsonb_build_object(:pkey, :move)
+                SET moves = moves || cast(:patch as jsonb)
                 WHERE challenger_id = :cid
                   AND status = 'active'
-                  AND NOT (moves ? :pkey)
+                  AND NOT (moves \\? :pkey)
                 RETURNING target_id, stake, moves
             """),
-            {"pkey": player_key, "move": move, "cid": challenger_id},
+            {"patch": move_patch, "pkey": player_key, "cid": challenger_id},
         )
         row = result.mappings().first()
 
@@ -182,15 +184,17 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
             # Either duel doesn't exist, not active, or already moved
             # Check which case
             check = await s.execute(
-                text("SELECT status, moves FROM duels WHERE challenger_id = :cid"),
+                text("SELECT status, moves, target_id FROM duels WHERE challenger_id = :cid"),
                 {"cid": challenger_id},
             )
             check_row = check.mappings().first()
             if not check_row or check_row["status"] != "active":
                 return {"ok": False, "error": "no_active_duel"}
+            if player_id not in (challenger_id, check_row["target_id"]):
+                return {"ok": False, "error": "not_participant"}
             if player_key in (check_row["moves"] or {}):
                 return {"ok": False, "error": "already_moved"}
-            return {"ok": False, "error": "not_participant"}
+            return {"ok": False, "error": "no_active_duel"}
 
         target_id = row["target_id"]
         if player_id not in (challenger_id, target_id):
