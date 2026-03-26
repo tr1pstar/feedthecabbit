@@ -621,10 +621,9 @@ async def callback_cabbit(callback: CallbackQuery):
             evo = get_evolution(c["level"])
             stars = c.get("prestige_stars", 0)
             stars_str = f"{'⭐' * stars}" if stars > 0 else ""
-            achs = len(c.get("achievements", []))
             lines.append(
                 f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — "
-                f"ур.{c['level']} 🏅{achs}"
+                f"ур. {c['level']} ({c['xp']} XP)"
             )
         buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")]]
         text = "\n".join(lines) if alive else "Нет живых кеббитов."
@@ -1496,12 +1495,11 @@ async def cmd_leaderboard(message: Message):
         if i <= 10:
             medal = medals[i - 1] if i <= 3 else f"{i}."
             evo = get_evolution(c["level"])
-            achs = len(c.get("achievements", []))
             stars = c.get("prestige_stars", 0)
             stars_str = f" {'⭐' * stars}" if stars > 0 else ""
             lines.append(
                 f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — ур. {c['level']} "
-                f"({c['xp']} XP) 🏅{achs}"
+                f"({c['xp']} XP)"
             )
 
     if my_place:
@@ -1576,12 +1574,11 @@ async def callback_leaderboard_current(callback: CallbackQuery):
         if i <= 10:
             medal = medals[i - 1] if i <= 3 else f"{i}."
             evo = get_evolution(c["level"])
-            achs = len(c.get("achievements", []))
             stars = c.get("prestige_stars", 0)
             stars_str = f" {'⭐' * stars}" if stars > 0 else ""
             lines.append(
                 f"{medal} {evo['emoji']} <b>{c['name']}</b>{stars_str} — ур. {c['level']} "
-                f"({c['xp']} XP) 🏅{achs}"
+                f"({c['xp']} XP)"
             )
 
     if my_place:
