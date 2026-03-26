@@ -107,6 +107,7 @@ def _unlock_achievements_cab(cab, new_achs: list[dict]) -> int:
 
 
 def _update_quest_progress_cab(cab, action: str, amount: int = 1):
+    from sqlalchemy.orm.attributes import flag_modified
     quest_data = dict(cab.quests or {})
     tasks, refreshed = get_or_refresh_quests(quest_data)
     if refreshed:
@@ -116,6 +117,7 @@ def _update_quest_progress_cab(cab, action: str, amount: int = 1):
     update_quest_progress(tasks, action, amount)
     quest_data["tasks"] = tasks
     cab.quests = quest_data
+    flag_modified(cab, "quests")
 
 
 # ---------------------------------------------------------------------------
