@@ -544,23 +544,36 @@ async def callback_cabbit(callback: CallbackQuery):
             return
 
         await callback.answer()
-        lines = ["🏆 <b>Достижения:</b>\n"]
-        for a in result["achievements"]:
-            if a["earned"]:
-                lines.append(f"  ✅ {a['emoji']} <b>{a['name']}</b> — {a['desc']}")
-            else:
-                lines.append(
-                    f"  ⬜ {a['emoji']} {a['name']} — {a['desc']} "
-                    f"({a['progress']}/{a['need']})"
-                )
+        earned_list = [a for a in result["achievements"] if a["earned"]]
+        not_earned = [a for a in result["achievements"] if not a["earned"]]
+        earned_count = len(earned_list)
+        total_count = len(result["achievements"])
+
+        lines = [f"🏆 <b>Достижения ({earned_count}/{total_count}):</b>\n"]
+        for a in earned_list:
+            lines.append(f"✅ {a['emoji']} <b>{a['name']}</b>")
+        if not_earned:
+            lines.append("")
+            for a in not_earned:
+                lines.append(f"⬜ {a['emoji']} {a['name']} ({a['progress']}/{a['need']})")
+
         buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")]]
         text = "\n".join(lines)
-        try:
-            await callback.message.edit_caption(caption=text, parse_mode="HTML",
-                                                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        except Exception:
-            await callback.message.edit_text(text=text, parse_mode="HTML",
-                                             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        # Caption limit is 1024, use edit_text via new message if too long
+        if len(text) > 1024:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+            await callback.message.answer(text=text, parse_mode="HTML",
+                                          reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        else:
+            try:
+                await callback.message.edit_caption(caption=text, parse_mode="HTML",
+                                                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+            except Exception:
+                await callback.message.edit_text(text=text, parse_mode="HTML",
+                                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         return
 
     # ── leaderboard ───────────────────────────────────────────────────────
