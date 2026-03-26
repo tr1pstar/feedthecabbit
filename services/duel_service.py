@@ -157,27 +157,44 @@ async def decline_duel(challenger_id: int, decliner_id: int) -> dict:
 
 
 async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
+    from sqlalchemy import text
+    import json
+
     async with get_session() as s:
-        duel = await duel_repo.get_for_update(s, challenger_id)
-        if not duel or duel.status != "active":
+        # Atomic: read duel with lock, check and add move in one go
+        row = await s.execute(
+            text("""
+                SELECT target_id, stake, moves, status
+                FROM duels
+                WHERE challenger_id = :cid
+                FOR UPDATE
+            """),
+            {"cid": challenger_id},
+        )
+        duel_row = row.mappings().first()
+        if not duel_row or duel_row["status"] != "active":
             return {"ok": False, "error": "no_active_duel"}
 
-        target_id = duel.target_id
+        target_id = duel_row["target_id"]
         if player_id not in (challenger_id, target_id):
             return {"ok": False, "error": "not_participant"}
 
-        moves = dict(duel.moves or {})
+        moves = dict(duel_row["moves"] or {})
         player_key = str(player_id)
         if player_key in moves:
             return {"ok": False, "error": "already_moved"}
 
-        from sqlalchemy.orm.attributes import flag_modified
+        # Atomic update moves in DB
         moves[player_key] = move
-        duel.moves = moves
-        flag_modified(duel, "moves")
-        await duel_repo.save(s, duel)
+        await s.execute(
+            text("UPDATE duels SET moves = :moves WHERE challenger_id = :cid"),
+            {"moves": json.dumps(moves), "cid": challenger_id},
+        )
+        await s.flush()
 
         if len(moves) < 2:
+            # Commit immediately so other player sees the move
+            await s.commit()
             return {"ok": True, "waiting": True, "resolved": False, "move": move}
 
         # Both moves in — resolve
@@ -193,11 +210,11 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
 
         if outcome == "tie":
             import time as _time
-            from sqlalchemy.orm.attributes import flag_modified
-            duel.moves = {}
-            duel.round_started_at = int(_time.time())
-            flag_modified(duel, "moves")
-            await duel_repo.save(s, duel)
+            await s.execute(
+                text("UPDATE duels SET moves = '{}', round_started_at = :ts WHERE challenger_id = :cid"),
+                {"ts": int(_time.time()), "cid": challenger_id},
+            )
+            await s.flush()
             return {
                 "ok": True, "waiting": False, "resolved": True,
                 "result": {
@@ -207,7 +224,10 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
             }
 
         # Winner determined — finish
-        await duel_repo.delete(s, challenger_id)
+        await s.execute(
+            text("DELETE FROM duels WHERE challenger_id = :cid"),
+            {"cid": challenger_id},
+        )
 
         if not c_cab or not t_cab or c_cab.dead or t_cab.dead:
             return {
