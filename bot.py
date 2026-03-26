@@ -14,10 +14,8 @@ from db.engine import init_db
 from core.middleware import SubscriptionMiddleware, unverify_user
 
 from handlers import start, cabbit, combat, casino, quests, admin, promo, payment, feedback
-from tasks.reaction_game import router as reaction_router
 from tasks.hunger_checker import hunger_checker
 from tasks.box_notifier import box_notifier
-from tasks.reaction_game import reaction_notifier
 from tasks.duel_expiry import duel_expiry_checker
 from tasks.autocollect import autocollect_task
 
@@ -53,7 +51,6 @@ async def main():
     dp.include_router(promo.router)
     dp.include_router(payment.router)
     dp.include_router(feedback.router)
-    dp.include_router(reaction_router)
 
     await init_db()
     logger.info("Database initialized.")
@@ -69,7 +66,6 @@ async def main():
     # Start background tasks
     asyncio.create_task(hunger_checker(bot))
     asyncio.create_task(box_notifier(bot))
-    asyncio.create_task(reaction_notifier(bot))
     asyncio.create_task(duel_expiry_checker(bot))
     asyncio.create_task(autocollect_task(bot))
 
