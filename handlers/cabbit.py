@@ -211,6 +211,8 @@ async def receive_name(message: Message, state: FSMContext):
     if message.text and message.text.strip() in REPLY_KB_LABELS:
         return
 
+    data = await state.get_data()
+    ref_uid = data.get("ref_uid")
     await state.clear()
 
     uid = message.from_user.id
@@ -220,7 +222,7 @@ async def receive_name(message: Message, state: FSMContext):
         await _reply(message,"Имя не может быть пустым. Напиши /cabbit чтобы начать заново.")
         return
 
-    cab = await cabbit_service.create_cabbit(uid, name)
+    cab = await cabbit_service.create_cabbit(uid, name, ref_uid)
     await _reply(message,
         f"🎉 Познакомьтесь — <b>{escape(name)}</b>!\n\n"
         f"Каждые 30 минут появляется коробка с едой — не забывай кормить!\n"

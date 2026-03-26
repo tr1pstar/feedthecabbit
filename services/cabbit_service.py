@@ -140,16 +140,16 @@ async def get_user_id_by_uid(uid: int) -> int | None:
         return cab.user_id if cab else None
 
 
-async def create_cabbit(user_id: int, name: str) -> dict:
+async def create_cabbit(user_id: int, name: str, ref_uid: int | None = None) -> dict:
     async with get_session() as s:
         cab = await cabbit_repo.create(s, user_id, name)
         cab.rules_accepted = True
-        # Apply pending referral
-        ref_uid = _pending_referrals.pop(user_id, None)
-        if ref_uid and ref_uid != user_id:
-            ref_cab = await cabbit_repo.get(s, ref_uid)
+        # Apply referral
+        actual_ref = ref_uid or _pending_referrals.pop(user_id, None)
+        if actual_ref and actual_ref != user_id:
+            ref_cab = await cabbit_repo.get(s, actual_ref)
             if ref_cab and not ref_cab.dead:
-                cab.referred_by = ref_uid
+                cab.referred_by = actual_ref
         await cabbit_repo.save(s, cab)
         return _cabbit_to_dict(cab)
 

@@ -4,6 +4,7 @@ handlers/start.py — /start, /help, /helpcabbit commands.
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 
 from config import REQUIRED_CHANNEL
 from core.formatting import get_reply_keyboard
@@ -13,14 +14,14 @@ router = Router()
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, state: FSMContext) -> None:
     # Save referrer if start link has ref_ parameter
     args = (message.text or "").split()
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             ref_uid = int(args[1][4:])
-            from services import cabbit_service
-            await cabbit_service.save_referrer(message.from_user.id, ref_uid)
+            if ref_uid != message.from_user.id:
+                await state.update_data(ref_uid=ref_uid)
         except (ValueError, Exception):
             pass
 
