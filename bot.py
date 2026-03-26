@@ -64,6 +64,24 @@ async def main():
     from core.formatting import set_current_season
     set_current_season(season['name'])
 
+    # Process any pending referral rewards
+    from services import cabbit_service as _cs
+    rewarded = await _cs.process_pending_referral_rewards()
+    for r in rewarded:
+        logger.info(f"Referral reward: {r['invited_name']} -> {r['referrer_name']}")
+        try:
+            await bot.send_message(
+                chat_id=r["referrer_uid"],
+                text=(
+                    f"🎉 <b>Реферальная награда!</b>\n\n"
+                    f"Твой реферал <b>{r['invited_name']}</b> достиг 5 уровня!\n"
+                    f"📦 Автосбор коробок на <b>6ч</b> активирован!"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
     # Start background tasks
     asyncio.create_task(hunger_checker(bot))
     asyncio.create_task(box_notifier(bot))

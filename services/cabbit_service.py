@@ -772,6 +772,45 @@ async def check_referral_reward(user_id: int) -> dict | None:
         }
 
 
+async def process_pending_referral_rewards() -> list[dict]:
+    """Check all unrewarded referrals and grant rewards. Called on startup."""
+    from sqlalchemy import select, and_
+    from db.models import Cabbit
+    results = []
+    async with get_session() as s:
+        r = await s.execute(
+            select(Cabbit).where(
+                and_(
+                    Cabbit.referred_by.isnot(None),
+                    Cabbit.referral_rewarded == False,
+                    Cabbit.level >= 5,
+                )
+            )
+        )
+        pending = list(r.scalars().all())
+        now = int(time.time())
+        for cab in pending:
+            ref_cab = await cabbit_repo.get(s, cab.referred_by)
+            if not ref_cab or ref_cab.dead:
+                cab.referral_rewarded = True
+                await cabbit_repo.save(s, cab)
+                continue
+
+            current_until = max(ref_cab.autocollect_until, now)
+            ref_cab.autocollect_until = current_until + AUTOCOLLECT_BONUS
+            await cabbit_repo.save(s, ref_cab)
+
+            cab.referral_rewarded = True
+            await cabbit_repo.save(s, cab)
+
+            results.append({
+                "referrer_uid": cab.referred_by,
+                "referrer_name": ref_cab.name,
+                "invited_name": cab.name,
+            })
+    return results
+
+
 async def get_autocollect_users() -> list[dict]:
     """Get users with active autocollect whose box is ready."""
     async with get_session() as s:
