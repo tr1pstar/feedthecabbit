@@ -237,6 +237,7 @@ async def make_move(challenger_id: int, player_id: int, move: str) -> dict:
 
         # Quest progress for winner
         _update_quest_progress_cab(winner_cab, "win_duel")
+        _update_quest_progress_cab(winner_cab, "earn_xp", actual_stake)
 
         # Achievements for winner
         new_achs = _check_achievements_cab(winner_cab)

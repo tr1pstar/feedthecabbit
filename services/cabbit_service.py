@@ -506,6 +506,7 @@ async def do_raid(user_id: int) -> dict:
             stats["raids_ok"] = stats.get("raids_ok", 0) + 1
             stats["xp_earned_total"] = stats.get("xp_earned_total", 0) + stolen
             cab.coins += COINS_RAID_OK
+            _update_quest_progress_cab(cab, "earn_xp", stolen)
             await cabbit_repo.save(s, target)
 
             result["success"] = True
