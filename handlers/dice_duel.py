@@ -60,10 +60,10 @@ async def cmd_duel(message: Message):
 
     stakes = [s for s in [1, 10, 50, 100, 250, 500, 1000] if s <= max_xp]
     buttons = [
-        [InlineKeyboardButton(text=f"⚡️ {s} XP", callback_data=f"dice_stake:{target_id}:{s}")]
+        [InlineKeyboardButton(text=f"⚡️ {s} XP", callback_data=f"dice_stake:{challenger_id}:{target_id}:{s}")]
         for s in stakes
     ]
-    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="dice_cancel")])
+    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data=f"dice_cancel:{challenger_id}")])
 
     await message.reply(
         f"🎲 <b>{c_cab['name']} вызывает {t_cab['name']} на дуэль!</b>\n\n"
@@ -74,10 +74,16 @@ async def cmd_duel(message: Message):
 
 @router.callback_query(F.data.startswith("dice_stake:"))
 async def callback_dice_stake(callback: CallbackQuery):
-    challenger = callback.from_user.id
     parts = callback.data.split(":")
-    target_uid = int(parts[1])
-    stake = int(parts[2])
+    allowed_uid = int(parts[1])
+    target_uid = int(parts[2])
+    stake = int(parts[3])
+
+    if callback.from_user.id != allowed_uid:
+        await callback.answer("❌ Только вызывающий может выбрать ставку!", show_alert=True)
+        return
+
+    challenger = allowed_uid
 
     result = await duel_service.send_challenge(
         challenger, target_uid, stake, duel_type="dice", chat_id=callback.message.chat.id)
@@ -99,8 +105,8 @@ async def callback_dice_stake(callback: CallbackQuery):
     t_name = result["target_name"]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Принять", callback_data=f"dice_accept:{challenger}"),
-        InlineKeyboardButton(text="❌ Отказать", callback_data=f"dice_decline:{challenger}"),
+        InlineKeyboardButton(text="✅ Принять", callback_data=f"dice_accept:{challenger}:{target_uid}"),
+        InlineKeyboardButton(text="❌ Отказать", callback_data=f"dice_decline:{challenger}:{target_uid}"),
     ]])
     await callback.message.edit_text(
         f"🎲 <b>{c_name} vs {t_name}</b>\n\n"
@@ -113,8 +119,14 @@ async def callback_dice_stake(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("dice_accept:"))
 async def callback_dice_accept(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    challenger = int(parts[1])
+    allowed_target = int(parts[2])
     target_uid = callback.from_user.id
-    challenger = int(callback.data.split(":")[1])
+
+    if target_uid != allowed_target:
+        await callback.answer("❌ Только вызванный игрок может принять!", show_alert=True)
+        return
 
     result = await duel_service.accept_duel(challenger, target_uid)
     if not result.get("ok"):
@@ -191,8 +203,14 @@ async def callback_dice_accept(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("dice_decline:"))
 async def callback_dice_decline(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    challenger = int(parts[1])
+    allowed_target = int(parts[2])
     decliner = callback.from_user.id
-    challenger = int(callback.data.split(":")[1])
+
+    if decliner != allowed_target:
+        await callback.answer("❌ Только вызванный игрок может отказать!", show_alert=True)
+        return
 
     result = await duel_service.decline_duel(challenger, decliner)
     if not result.get("ok"):
@@ -203,7 +221,11 @@ async def callback_dice_decline(callback: CallbackQuery):
     await callback.message.edit_text("❌ Дуэль отклонена. Жетон возвращён.")
 
 
-@router.callback_query(F.data == "dice_cancel")
+@router.callback_query(F.data.startswith("dice_cancel:"))
 async def callback_dice_cancel(callback: CallbackQuery):
+    allowed_uid = int(callback.data.split(":")[1])
+    if callback.from_user.id != allowed_uid:
+        await callback.answer("❌ Только вызывающий может отменить!", show_alert=True)
+        return
     await callback.answer()
     await callback.message.delete()
