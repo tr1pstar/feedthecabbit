@@ -86,6 +86,7 @@ async def play_casino(user_id: int, bet: int) -> dict:
             stats["casino_xp_won"] = stats.get("casino_xp_won", 0) + net
             stats["xp_earned_total"] = stats.get("xp_earned_total", 0) + net
             cab.stats = stats
+            _update_quest_progress_cab(cab, "earn_xp", net)
 
             result["won"] = True
             result["net_xp"] = net
