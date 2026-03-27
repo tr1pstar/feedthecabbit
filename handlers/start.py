@@ -22,6 +22,9 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             ref_uid = int(args[1][4:])
             if ref_uid != message.from_user.id:
                 await state.update_data(ref_uid=ref_uid)
+                # Backup in memory dict
+                from services.cabbit_service import _pending_referrals
+                _pending_referrals[message.from_user.id] = ref_uid
         except (ValueError, Exception):
             pass
 
