@@ -48,7 +48,14 @@ async def autocollect_task(bot: Bot):
 
                     event = result.get("event")
                     if event:
-                        parts.append(f"\n{event.get('text', '')}")
+                        ev_text = event.get("text", "")
+                        if event.get("xp"):
+                            ev_text += f" ({event['xp']:+d} XP)"
+                        if event.get("tokens"):
+                            ev_text += f" (+{event['tokens']} жетон)"
+                        if event.get("level_up"):
+                            ev_text += " (+1 уровень!)"
+                        parts.append(f"\n{ev_text}")
 
                     if result.get("sickness_roll"):
                         parts.append("\n🤒 Кеббит заболел!")
@@ -60,6 +67,17 @@ async def autocollect_task(bot: Bot):
                     if new_achs:
                         for a in new_achs:
                             parts.append(f"\n🏆 {a['emoji']} <b>{a['name']}</b> +{a['reward']} XP")
+
+                    # Auto-claim completed quests
+                    from services import quest_service
+                    quest_data = await quest_service.get_quests(uid)
+                    if quest_data and quest_data.get("ok"):
+                        tasks = quest_data.get("tasks", [])
+                        for i, t in enumerate(tasks):
+                            if not t.get("claimed") and t.get("progress", 0) >= t.get("target", 999):
+                                claim = await quest_service.claim_quest(uid, i)
+                                if claim.get("ok"):
+                                    parts.append(f"\n🎁 Квест выполнен! +{claim['reward']} XP")
 
                     await bot.send_message(
                         chat_id=uid, text="\n".join(parts), parse_mode="HTML")
