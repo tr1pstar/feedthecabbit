@@ -452,6 +452,25 @@ async def use_item(user_id: int, item: str) -> dict:
             result["leveled_up"] = leveled
             result["new_level"] = new_level
 
+        elif item == "Лотерейный билет":
+            # Weighted random: more likely low, rare jackpot
+            roll = random.random()
+            if roll < 0.50:
+                won = random.randint(1, 100)
+            elif roll < 0.80:
+                won = random.randint(100, 500)
+            elif roll < 0.95:
+                won = random.randint(500, 1500)
+            else:
+                won = random.randint(1500, 3000)
+            leveled, new_level = _apply_xp_to_cab(cab, won)
+            stats = dict(cab.stats or {})
+            stats["xp_earned_total"] = stats.get("xp_earned_total", 0) + won
+            cab.stats = stats
+            result["lottery_xp"] = won
+            result["leveled_up"] = leveled
+            result["new_level"] = new_level
+
         await cabbit_repo.save(s, cab)
         result["cabbit"] = _cabbit_to_dict(cab)
         return result

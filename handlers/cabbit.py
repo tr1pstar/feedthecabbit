@@ -418,6 +418,9 @@ async def callback_cabbit(callback: CallbackQuery):
         if inv.get("Магнит", 0) > 0:
             buttons.append([InlineKeyboardButton(
                 text=f"🧲 Магнит x{inv['Магнит']}", callback_data="use_item:Магнит")])
+        if inv.get("Лотерейный билет", 0) > 0:
+            buttons.append([InlineKeyboardButton(
+                text=f"🎟 Лотерейный билет x{inv['Лотерейный билет']}", callback_data="use_item:Лотерейный билет")])
         if inv.get("Щит", 0) > 0:
             buttons.append([InlineKeyboardButton(
                 text=f"🛡 Щит x{inv['Щит']} (авто)", callback_data="cabbit:refresh")])
@@ -1318,6 +1321,29 @@ async def callback_use_item(callback: CallbackQuery):
                 )
             except Exception:
                 pass
+    elif item == "Лотерейный билет":
+        won = result.get("lottery_xp", 0)
+        lvl_str = ""
+        if result.get("leveled_up"):
+            lvl_str = f"\n🎉 <b>УРОВЕНЬ {result['new_level']}!</b>"
+        if won >= 1500:
+            emoji = "🎉🎉🎉"
+            label = "ДЖЕКПОТ!!!"
+        elif won >= 500:
+            emoji = "🎉"
+            label = "Крупный выигрыш!"
+        elif won >= 100:
+            emoji = "😊"
+            label = "Неплохо!"
+        else:
+            emoji = "😐"
+            label = "Ну, хоть что-то..."
+        text = (
+            f"🎟 <b>Лотерейный билет!</b>\n\n"
+            f"{emoji} <b>{label}</b>\n"
+            f"💰 +{won} XP{lvl_str}\n\n"
+            f"{cabbit_status(cab)}"
+        )
     else:
         text = f"✅ Предмет использован.\n\n{cabbit_status(cab)}"
 
@@ -1790,14 +1816,49 @@ async def cmd_shop(message: Message):
     if not any(c["total_count"] > 0 for c in capsules):
         lines.append("\nКапсул пока нет. Загляни позже!")
 
-    lines.append(f"\n✏️ Смена имени: /rename НовоеИмя — 🪙 {RENAME_COST}")
+    lines.append(f"\n🎟 Лотерейный билет — 🪙 300")
+    lines.append(f"✏️ Смена имени: /rename НовоеИмя — 🪙 {RENAME_COST}")
 
+    buttons.append([InlineKeyboardButton(text="🎟 Купить билет (300 🪙)", callback_data="buy_lottery")])
     buttons.append([InlineKeyboardButton(text="💰 Купить монеты", callback_data="coinshop")])
     buttons.append([InlineKeyboardButton(text="💝 Донат", callback_data="donate_start")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await _reply(message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "buy_lottery")
+async def callback_buy_lottery(callback: CallbackQuery):
+    uid = callback.from_user.id
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab or cab.get("dead"):
+        await callback.answer("❌ Нет кеббита.", show_alert=True)
+        return
+    if cab.get("coins", 0) < 300:
+        await callback.answer(f"❌ Нужно 300 монет! У тебя: {cab.get('coins', 0)}", show_alert=True)
+        return
+
+    result = await cabbit_service.add_coins(uid, -300)
+    if not result.get("ok"):
+        await callback.answer("❌ Ошибка.", show_alert=True)
+        return
+
+    # Add lottery ticket to inventory
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        c = await cabbit_repo.get(s, uid)
+        inv = dict(c.inventory or {})
+        inv["Лотерейный билет"] = inv.get("Лотерейный билет", 0) + 1
+        c.inventory = inv
+        await cabbit_repo.save(s, c)
+
+    await callback.answer("🎟 Лотерейный билет куплен!")
+    cab = await cabbit_service.get_cabbit(uid)
+    await _edit_card(callback, cab,
+                     f"🎟 <b>Лотерейный билет куплен!</b>\n🪙 Осталось: {cab['coins']} монет\n\n"
+                     f"Используй через 🎒 Инвентарь")
 
 
 @router.callback_query(F.data.startswith("capsule_buy:"))
@@ -2121,6 +2182,7 @@ WIKI_PAGES = {
         "🧲 <b>Магнит</b> (1.5%) — крадёт 100-300 XP у случайного игрока\n"
         "👑 <b>Корона</b> (1.5%) — x2 XP на 3 следующие коробки\n"
         "💊 <b>Таблетка</b> (3%) — мгновенно лечит болезнь\n\n"
+        "🎟 <b>Лотерейный билет</b> (магазин 300 монет) — случайный выигрыш от 1 до 3000 XP\n\n"
         "Предметы копятся в инвентаре. Использовать: кнопка 🎒 Инвентарь"
     ),
     "sickness": (
