@@ -93,5 +93,54 @@ async def hunger_checker(bot: Bot) -> None:
                 except Exception as e:
                     logger.warning(f"warn_12h uid={uid}: {e}")
 
+            # ── expired knives ──────────────────────────────────────────
+            knife_notify = []
+            async with get_session() as session:
+                from sqlalchemy import select
+                from db.models import Cabbit
+                from core.constants import ACHIEVEMENTS
+                r = await session.execute(
+                    select(Cabbit).where(
+                        Cabbit.has_knife == True,
+                        Cabbit.knife_until > 0,
+                        Cabbit.knife_until <= now,
+                        Cabbit.dead == False,
+                    )
+                )
+                for cab in r.scalars().all():
+                    cab.has_knife = False
+                    cab.knife_until = 0
+                    # Grant pacifist stat
+                    stats = dict(cab.stats or {})
+                    stats["pacifist_count"] = stats.get("pacifist_count", 0) + 1
+                    cab.stats = stats
+                    # Check pacifist achievement
+                    earned = set(cab.achievements or [])
+                    new_achs = []
+                    for ach in ACHIEVEMENTS:
+                        if ach["id"] not in earned and ach["stat"] == "pacifist_count" and stats.get("pacifist_count", 0) >= ach["need"]:
+                            new_achs.append(ach)
+                    bonus_xp = 0
+                    if new_achs:
+                        earned_list = list(cab.achievements or [])
+                        for ach in new_achs:
+                            earned_list.append(ach["id"])
+                            bonus_xp += ach["reward"]
+                        cab.achievements = earned_list
+                        cab.xp += bonus_xp
+                    knife_notify.append((cab.user_id, cab.name, new_achs, bonus_xp))
+
+            for uid, name, achs, bonus in knife_notify:
+                text = (
+                    f"🕊 <b>Нож истёк!</b>\n\n"
+                    f"Ты не использовал нож 6 часов — он исчез."
+                )
+                if achs:
+                    text += f"\n\n🏆 🕊 <b>Пацифист!</b> +{bonus} XP"
+                try:
+                    await bot.send_message(chat_id=uid, text=text, parse_mode="HTML")
+                except Exception as e:
+                    logger.warning(f"knife expiry notify uid={uid}: {e}")
+
         except Exception as e:
             logger.error(f"hunger_checker error: {e}", exc_info=True)

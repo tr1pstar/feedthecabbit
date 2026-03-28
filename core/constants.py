@@ -174,6 +174,8 @@ ACHIEVEMENTS = [
     # Престиж
     {"id": "prestige_1", "name": "Перерождение",     "emoji": "🌟", "desc": "Сделай первый престиж",         "stat": "prestige_count",  "need": 1,     "reward": 500},
     {"id": "prestige_3", "name": "Феникс",           "emoji": "🔥", "desc": "Сделай 3 престижа",             "stat": "prestige_count",  "need": 3,     "reward": 1500},
+    # Пацифист
+    {"id": "pacifist",   "name": "Пацифист",         "emoji": "🕊", "desc": "Не использовал нож за 6 часов", "stat": "pacifist_count",  "need": 1,     "reward": 1500},
 ]
 
 # ─── Promo types ──────────────────────────────────────────────────────────────

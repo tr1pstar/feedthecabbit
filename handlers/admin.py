@@ -752,6 +752,29 @@ async def cmd_seasoninfo(message: Message):
     )
 
 
+@router.message(Command("takeknife"))
+async def cmd_takeknife(message: Message):
+    """/takeknife — take knife from whoever has it."""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        cab = await cabbit_repo.get_knife_owner(s)
+        if not cab:
+            await message.answer("❌ Ни у кого нет ножа.")
+            return
+        name = cab.name
+        uid = cab.user_id
+        cab.has_knife = False
+        cab.knife_until = 0
+        await cabbit_repo.save(s, cab)
+
+    await message.answer(f"✅ Нож забран у <b>{name}</b> ({uid})", parse_mode="HTML")
+
+
 @router.message(Command("giveautocollect"))
 async def cmd_giveautocollect(message: Message):
     """/giveautocollect <user_id> <hours>"""

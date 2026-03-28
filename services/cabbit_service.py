@@ -249,6 +249,7 @@ async def open_box(user_id: int) -> dict:
 
         if got_knife:
             cab.has_knife = True
+            cab.knife_until = now + 6 * 3600
             alive_uids = await cabbit_repo.get_alive_uids(s)
             result["notify_knife_uids"] = [u for u in alive_uids if u != user_id]
             result["leveled_up"] = False

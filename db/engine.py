@@ -61,6 +61,8 @@ async def init_db():
                 )
             ]
         )
+        if "knife_until" not in cols2:
+            await conn.execute(text("ALTER TABLE cabbits ADD COLUMN knife_until INTEGER DEFAULT 0"))
         if "autocollect_until" not in cols2:
             await conn.execute(text("ALTER TABLE cabbits ADD COLUMN autocollect_until INTEGER DEFAULT 0"))
 

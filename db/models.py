@@ -30,6 +30,7 @@ class Cabbit(Base):
     warned_23h: Mapped[bool] = mapped_column(Boolean, default=False)
     dead: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     has_knife: Mapped[bool] = mapped_column(Boolean, default=False)
+    knife_until: Mapped[int] = mapped_column(Integer, default=0)
     food_counts: Mapped[dict] = mapped_column(JSONB, default=dict)
     duel_tokens: Mapped[int] = mapped_column(Integer, default=0)
     inventory: Mapped[dict] = mapped_column(JSONB, default=dict)
