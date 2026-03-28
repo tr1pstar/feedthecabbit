@@ -928,6 +928,9 @@ def _casino_menu_kb(xp: int) -> InlineKeyboardMarkup:
     buttons.append([
         InlineKeyboardButton(text="✏️ Своя ставка", callback_data="casino_custom"),
     ])
+    buttons.append([
+        InlineKeyboardButton(text="🏗 Башня", callback_data="tower_menu"),
+    ])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -2209,13 +2212,14 @@ WIKI_PAGES = {
     ),
     "casino": (
         "🎰 <b>Казино</b>\n\n"
-        "Слот-машина на XP. Делаешь ставку и крутишь.\n\n"
-        "Ставки: 10 / 50 / 100 / 250 / 500 XP\n\n"
-        "Выигрыш зависит от комбинации символов на барабанах:\n"
-        "🍒🍋🔔💎7️⃣🍀\n\n"
-        "• 3 одинаковых — большой выигрыш\n"
-        "• 2 одинаковых — малый выигрыш\n"
-        "• Иначе — проигрыш"
+        "<b>🎰 Слоты</b>\n"
+        "Крути барабаны! 3 одинаковых = большой выигрыш, "
+        "2 одинаковых = x2, иначе проигрыш.\n\n"
+        "<b>🏗 Башня</b>\n"
+        "5 этажей, на каждом спрятаны бомбы.\n"
+        "Выбирай ячейку — если безопасно, поднимаешься выше.\n"
+        "Нашёл бомбу — проиграл. Можно забрать выигрыш в любой момент!\n"
+        "Больше бомб = выше множители."
     ),
     "skins": (
         "🎨 <b>Скины и капсулы</b>\n\n"
