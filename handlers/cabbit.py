@@ -1150,7 +1150,7 @@ async def duel_search_query(message: Message, state: FSMContext):
 
 async def _show_knife_targets(callback: CallbackQuery, attacker_uid: int):
     all_cabs = await cabbit_service.get_all_cabbits()
-    others = [(c["uid"], c) for c in all_cabs
+    others = [(c["user_id"], c) for c in all_cabs
               if c["user_id"] != attacker_uid and not c.get("dead")]
     if not others:
         await callback.answer("Нет других живых кеббитов для атаки!", show_alert=True)
@@ -1176,15 +1176,7 @@ async def callback_kill(callback: CallbackQuery):
             await _edit_card(callback, cab)
         return
 
-    try:
-        target_user_id = await cabbit_service.get_user_id_by_uid(int(target_uid))
-    except Exception as e:
-        logger.error(f"kill resolve uid error: {e}")
-        await callback.answer("❌ Ошибка.", show_alert=True)
-        return
-    if not target_user_id:
-        await callback.answer("Кеббит не найден!", show_alert=True)
-        return
+    target_user_id = int(target_uid)
     result = await cabbit_service.kill_cabbit(attacker_uid, target_user_id)
     if not result.get("ok"):
         err = result.get("error", "")
