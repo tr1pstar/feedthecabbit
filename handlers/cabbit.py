@@ -1176,7 +1176,12 @@ async def callback_kill(callback: CallbackQuery):
             await _edit_card(callback, cab)
         return
 
-    target_user_id = await cabbit_service.get_user_id_by_uid(int(target_uid))
+    try:
+        target_user_id = await cabbit_service.get_user_id_by_uid(int(target_uid))
+    except Exception as e:
+        logger.error(f"kill resolve uid error: {e}")
+        await callback.answer("❌ Ошибка.", show_alert=True)
+        return
     if not target_user_id:
         await callback.answer("Кеббит не найден!", show_alert=True)
         return

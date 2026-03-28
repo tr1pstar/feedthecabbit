@@ -573,7 +573,13 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
         attacker = await cabbit_repo.get(s, attacker_id)
         target = await cabbit_repo.get(s, target_id)
 
+        now = int(time.time())
         if not attacker or not attacker.has_knife:
+            return {"ok": False, "error": "no_knife"}
+        if attacker.knife_until > 0 and now > attacker.knife_until:
+            attacker.has_knife = False
+            attacker.knife_until = 0
+            await cabbit_repo.save(s, attacker)
             return {"ok": False, "error": "no_knife"}
         if not target or target.dead:
             return {"ok": False, "error": "target_dead"}
@@ -588,6 +594,7 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
             inv["Щит"] -= 1
             target.inventory = inv
             attacker.has_knife = False
+            attacker.knife_until = 0
             await cabbit_repo.save(s, target)
             await cabbit_repo.save(s, attacker)
             result["shielded"] = True
@@ -599,6 +606,7 @@ async def kill_cabbit(attacker_id: int, target_id: int) -> dict:
         await cabbit_repo.save(s, target)
 
         attacker.has_knife = False
+        attacker.knife_until = 0
         stats = dict(attacker.stats or {})
         stats["kills"] = stats.get("kills", 0) + 1
         attacker.stats = stats
