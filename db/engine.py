@@ -18,6 +18,9 @@ async def init_db():
                 )
             ]
         )
+        # Ensure uid is BIGINT (might have been created as INTEGER)
+        if "uid" in cols:
+            await conn.execute(text("ALTER TABLE cabbits ALTER COLUMN uid TYPE BIGINT"))
         if "uid" not in cols:
             await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS cabbit_uid_seq"))
             await conn.execute(text(

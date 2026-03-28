@@ -17,7 +17,7 @@ class Season(Base):
 
 class Cabbit(Base):
     __tablename__ = "cabbits"
-    uid: Mapped[int] = mapped_column(Integer, cabbit_uid_seq, server_default=cabbit_uid_seq.next_value(), unique=True, nullable=False)
+    uid: Mapped[int] = mapped_column(BigInteger, cabbit_uid_seq, server_default=cabbit_uid_seq.next_value(), unique=True, nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(20))
     xp: Mapped[int] = mapped_column(Integer, default=0)
