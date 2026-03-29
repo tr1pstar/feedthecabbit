@@ -44,6 +44,7 @@ async def main():
     dp.include_router(channel_router)
     dp.include_router(start.router)
     dp.include_router(admin.router)
+    dp.include_router(trade.router)
     dp.include_router(cabbit.router)
     dp.include_router(combat.router)
     dp.include_router(casino.router)
@@ -53,7 +54,6 @@ async def main():
     dp.include_router(feedback.router)
     dp.include_router(dice_duel.router)
     dp.include_router(tower.router)
-    dp.include_router(trade.router)
 
     await init_db()
     logger.info("Database initialized.")
