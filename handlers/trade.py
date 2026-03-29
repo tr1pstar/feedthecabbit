@@ -19,6 +19,15 @@ TRADEABLE_ITEMS = ["Зелье", "Таблетка", "Магнит", "Лотер
 ITEM_EMOJI = {"Зелье": "🧪", "Таблетка": "💊", "Магнит": "🧲", "Лотерейный билет": "🎟", "Щит": "🛡"}
 
 
+class TradeSearchState(StatesGroup):
+    waiting_name = State()
+
+
+class TradeXPSearchState(StatesGroup):
+    waiting_name = State()
+    waiting_amount = State()
+
+
 class TradeXPState(StatesGroup):
     waiting_amount = State()
 
@@ -73,29 +82,59 @@ async def callback_trade_menu(callback: CallbackQuery):
 # ── Pick target for item trade ────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("trade_item_pick:"))
-async def callback_trade_item_pick(callback: CallbackQuery):
-    uid = callback.from_user.id
+async def callback_trade_item_pick(callback: CallbackQuery, state: FSMContext):
     item_name = callback.data.split(":", 1)[1]
     await callback.answer()
+    await state.update_data(trade_item=item_name)
+    await state.set_state(TradeSearchState.waiting_name)
+    emoji = ITEM_EMOJI.get(item_name, "📦")
+    await callback.message.edit_text(
+        f"{emoji} <b>Отправить {item_name}</b>\n\nВведи имя получателя:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Отмена", callback_data="trade_menu")],
+        ]),
+    )
+
+
+@router.callback_query(TradeSearchState.waiting_name, F.data == "trade_menu")
+async def callback_trade_search_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback_trade_menu(callback)
+
+
+@router.message(TradeSearchState.waiting_name, F.text)
+async def trade_item_search(message: Message, state: FSMContext):
+    data = await state.get_data()
+    item_name = data.get("trade_item")
+    await state.clear()
+
+    if not item_name:
+        await message.reply("❌ Ошибка, попробуй заново.")
+        return
+
+    uid = message.from_user.id
+    query = message.text.strip().lower()
 
     all_cabs = await cabbit_service.get_all_cabbits()
-    others = [c for c in all_cabs if c["user_id"] != uid and not c.get("dead")]
-    others.sort(key=lambda c: c.get("level", 1), reverse=True)
+    matches = [c for c in all_cabs
+               if c["user_id"] != uid and not c.get("dead")
+               and query in c["name"].lower()]
 
-    if not others:
-        await callback.message.edit_text("❌ Нет других живых игроков.")
+    if not matches:
+        await message.reply(f"❌ Никого не найдено по «{message.text.strip()}».")
         return
 
     emoji = ITEM_EMOJI.get(item_name, "📦")
     buttons = []
-    for c in others[:15]:
+    for c in matches[:10]:
         buttons.append([InlineKeyboardButton(
             text=f"🐰 {c['name']} (ур. {c['level']})",
             callback_data=f"trade_item_send:{c['user_id']}:{item_name}",
         )])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="trade_menu")])
 
-    await callback.message.edit_text(
+    await message.reply(
         f"{emoji} <b>Отправить {item_name}</b>\n\nВыбери кому:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
@@ -138,27 +177,49 @@ async def callback_trade_item_send(callback: CallbackQuery):
 # ── XP trade ──────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data == "trade_xp_pick")
-async def callback_trade_xp_pick(callback: CallbackQuery):
-    uid = callback.from_user.id
+async def callback_trade_xp_pick(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.set_state(TradeXPSearchState.waiting_name)
+    await callback.message.edit_text(
+        "💰 <b>Отправить XP</b>\n\nВведи имя получателя:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Отмена", callback_data="trade_menu")],
+        ]),
+    )
+
+
+@router.callback_query(TradeXPSearchState.waiting_name, F.data == "trade_menu")
+async def callback_xp_search_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback_trade_menu(callback)
+
+
+@router.message(TradeXPSearchState.waiting_name, F.text)
+async def trade_xp_search(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    query = message.text.strip().lower()
 
     all_cabs = await cabbit_service.get_all_cabbits()
-    others = [c for c in all_cabs if c["user_id"] != uid and not c.get("dead")]
-    others.sort(key=lambda c: c.get("level", 1), reverse=True)
+    matches = [c for c in all_cabs
+               if c["user_id"] != uid and not c.get("dead")
+               and query in c["name"].lower()]
 
-    if not others:
-        await callback.message.edit_text("❌ Нет других живых игроков.")
+    if not matches:
+        await state.clear()
+        await message.reply(f"❌ Никого не найдено по «{message.text.strip()}».")
         return
 
+    await state.clear()
     buttons = []
-    for c in others[:15]:
+    for c in matches[:10]:
         buttons.append([InlineKeyboardButton(
             text=f"🐰 {c['name']} (ур. {c['level']})",
             callback_data=f"trade_xp_target:{c['user_id']}",
         )])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="trade_menu")])
 
-    await callback.message.edit_text(
+    await message.reply(
         "💰 <b>Отправить XP</b>\n\nВыбери кому:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
