@@ -13,7 +13,7 @@ from config import BOT_TOKEN, REQUIRED_CHANNEL
 from db.engine import init_db
 from core.middleware import SubscriptionMiddleware, unverify_user
 
-from handlers import start, cabbit, combat, casino, quests, admin, promo, payment, feedback, dice_duel, tower
+from handlers import start, cabbit, combat, casino, quests, admin, promo, payment, feedback, dice_duel, tower, trade
 from tasks.hunger_checker import hunger_checker
 from tasks.box_notifier import box_notifier
 from tasks.duel_expiry import duel_expiry_checker
@@ -53,6 +53,7 @@ async def main():
     dp.include_router(feedback.router)
     dp.include_router(dice_duel.router)
     dp.include_router(tower.router)
+    dp.include_router(trade.router)
 
     await init_db()
     logger.info("Database initialized.")
