@@ -1793,8 +1793,11 @@ async def cmd_shop(message: Message):
     capsules = result.get("capsules", [])
     coins = result.get("coins", 0)
 
-    lines = [f"🏪 <b>Магазин капсул</b>\n🪙 Баланс: <b>{coins}</b> монет\n"]
-    buttons = []
+    lines = [f"🏪 <b>Магазин</b>\n🪙 Баланс: <b>{coins}</b> монет"]
+
+    # Skins section
+    lines.append(f"\n<b>🎨 Скины (капсулы):</b>")
+    skin_buttons = []
     for cap in capsules:
         r_em = cap["rarity_emoji"]
         price = cap["price"]
@@ -1803,29 +1806,59 @@ async def cmd_shop(message: Message):
         if total == 0:
             continue
         if cap["owned_all"]:
-            lines.append(f"  {r_em} <b>{cap['name']}</b> — ✅ все собраны")
+            lines.append(f"  {r_em} {cap['name']} — ✅ все собраны")
         else:
-            lines.append(
-                f"  {r_em} <b>{cap['name']}</b> — 🪙 {price} "
-                f"({avail}/{total} доступно)")
-            buttons.append([InlineKeyboardButton(
-                text=f"🪙 {price} — {cap['name']}",
+            lines.append(f"  {r_em} {cap['name']} — 🪙 {price} ({avail}/{total})")
+            skin_buttons.append([InlineKeyboardButton(
+                text=f"{r_em} {cap['name']} — {price} 🪙",
                 callback_data=f"capsule_buy:{cap['rarity']}"
             )])
 
     if not any(c["total_count"] > 0 for c in capsules):
-        lines.append("\nКапсул пока нет. Загляни позже!")
+        lines.append("  Капсул пока нет.")
 
-    lines.append(f"\n🎟 Лотерейный билет — 🪙 300")
-    lines.append(f"✏️ Смена имени: /rename НовоеИмя — 🪙 {RENAME_COST}")
+    # Items section
+    lines.append(f"\n<b>🧪 Предметы:</b>")
+    lines.append(f"  💊 Таблетка — 🪙 150 (лечит болезнь)")
+    lines.append(f"  🧪 Зелье — 🪙 150 (сбрасывает голод)")
 
-    buttons.append([InlineKeyboardButton(text="🎟 Купить билет (300 🪙)", callback_data="buy_lottery")])
+    # Other section
+    lines.append(f"\n<b>📦 Прочее:</b>")
+    lines.append(f"  🎟 Лотерейный билет — 🪙 300 (1-3000 XP)")
+    lines.append(f"  ✏️ Смена имени — 🪙 {RENAME_COST}")
+
+    buttons = skin_buttons
+    buttons.append([
+        InlineKeyboardButton(text="💊 Таблетка (150 🪙)", callback_data="buy_item:Таблетка:150"),
+        InlineKeyboardButton(text="🧪 Зелье (150 🪙)", callback_data="buy_item:Зелье:150"),
+    ])
+    buttons.append([InlineKeyboardButton(text="🎟 Лотерейный билет (300 🪙)", callback_data="buy_lottery_confirm")])
     buttons.append([InlineKeyboardButton(text="💰 Купить монеты", callback_data="coinshop")])
     buttons.append([InlineKeyboardButton(text="💝 Донат", callback_data="donate_start")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await _reply(message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "buy_lottery_confirm")
+async def callback_buy_lottery_confirm(callback: CallbackQuery):
+    await callback.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Купить за 300 🪙", callback_data="buy_lottery")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+    ])
+    await callback.message.edit_text(
+        "🎟 <b>Лотерейный билет</b>\n\n"
+        "Испытай удачу! Случайный выигрыш XP:\n\n"
+        "• 50% — 1-100 XP\n"
+        "• 30% — 100-500 XP\n"
+        "• 15% — 500-1500 XP\n"
+        "• 5% — 1500-3000 XP 🎉\n\n"
+        "Стоимость: <b>300 монет</b>",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
 
 
 @router.callback_query(F.data == "buy_lottery")
@@ -1844,7 +1877,6 @@ async def callback_buy_lottery(callback: CallbackQuery):
         await callback.answer("❌ Ошибка.", show_alert=True)
         return
 
-    # Add lottery ticket to inventory
     from db.engine import get_session
     from repositories import cabbit_repo
     async with get_session() as s:
@@ -1854,11 +1886,47 @@ async def callback_buy_lottery(callback: CallbackQuery):
         c.inventory = inv
         await cabbit_repo.save(s, c)
 
-    await callback.answer("🎟 Лотерейный билет куплен!")
+    await callback.answer("🎟 Куплено!")
     cab = await cabbit_service.get_cabbit(uid)
     await _edit_card(callback, cab,
                      f"🎟 <b>Лотерейный билет куплен!</b>\n🪙 Осталось: {cab['coins']} монет\n\n"
                      f"Используй через 🎒 Инвентарь")
+
+
+@router.callback_query(F.data.startswith("buy_item:"))
+async def callback_buy_item(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    item_name = parts[1]
+    price = int(parts[2])
+    uid = callback.from_user.id
+
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab or cab.get("dead"):
+        await callback.answer("❌ Нет кеббита.", show_alert=True)
+        return
+    if cab.get("coins", 0) < price:
+        await callback.answer(f"❌ Нужно {price} монет! У тебя: {cab.get('coins', 0)}", show_alert=True)
+        return
+
+    result = await cabbit_service.add_coins(uid, -price)
+    if not result.get("ok"):
+        await callback.answer("❌ Ошибка.", show_alert=True)
+        return
+
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        c = await cabbit_repo.get(s, uid)
+        inv = dict(c.inventory or {})
+        inv[item_name] = inv.get(item_name, 0) + 1
+        c.inventory = inv
+        await cabbit_repo.save(s, c)
+
+    emoji = {"Таблетка": "💊", "Зелье": "🧪"}.get(item_name, "📦")
+    await callback.answer(f"{emoji} {item_name} куплен!")
+    cab = await cabbit_service.get_cabbit(uid)
+    await _edit_card(callback, cab,
+                     f"{emoji} <b>{item_name} куплен!</b>\n🪙 Осталось: {cab['coins']} монет")
 
 
 @router.callback_query(F.data.startswith("capsule_buy:"))
