@@ -1919,7 +1919,7 @@ async def callback_skin_preview(callback: CallbackQuery):
     text = f"{r_em} <b>{preview['display_name']}</b>\nРедкость: {preview['rarity']}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад к каталогу", callback_data="skin_catalog")],
+        [InlineKeyboardButton(text="◀️ Назад к каталогу", callback_data="skin_catalog_from_preview")],
     ])
 
     try:
@@ -1934,6 +1934,39 @@ async def callback_skin_preview(callback: CallbackQuery):
         except Exception:
             pass
     await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "skin_catalog_from_preview")
+async def callback_skin_catalog_from_preview(callback: CallbackQuery):
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    # Re-send catalog as new message
+    result = await skin_service.get_all_skins_catalog()
+    if not result.get("ok") or not result.get("skins"):
+        await callback.message.answer("📋 Каталог пуст.")
+        return
+
+    skins = result["skins"]
+    from core.constants import RARITY_EMOJI, RARITY_ORDER
+    skins.sort(key=lambda s: (RARITY_ORDER.get(s["rarity"], 0), s["display_name"]))
+
+    buttons = []
+    for sk in skins:
+        r_em = RARITY_EMOJI.get(sk["rarity"], "⚪")
+        buttons.append([InlineKeyboardButton(
+            text=f"{r_em} {sk['display_name']}",
+            callback_data=f"skin_preview:{sk['skin_id']}",
+        )])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+
+    await callback.message.answer(
+        f"📋 <b>Каталог скинов</b> ({len(skins)})\n\nНажми чтобы посмотреть:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
 
 
 @router.callback_query(F.data == "buy_lottery_confirm")
