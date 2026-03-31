@@ -918,7 +918,15 @@ async def callback_cabbit(callback: CallbackQuery):
 # Casino
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _casino_menu_kb(xp: int) -> InlineKeyboardMarkup:
+CASINO_MODE_KB = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🎰 Слоты", callback_data="casino_mode:slots")],
+    [InlineKeyboardButton(text="🏗 Башня", callback_data="tower_menu")],
+    [InlineKeyboardButton(text="💣 Мины", callback_data="mines_menu")],
+    [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+])
+
+
+def _slots_menu_kb(xp: int) -> InlineKeyboardMarkup:
     stakes = [50, 100, 250, 500, 1000]
     buttons = []
     row = []
@@ -936,10 +944,7 @@ def _casino_menu_kb(xp: int) -> InlineKeyboardMarkup:
     buttons.append([
         InlineKeyboardButton(text="✏️ Своя ставка", callback_data="casino_custom"),
     ])
-    buttons.append([
-        InlineKeyboardButton(text="🏗 Башня", callback_data="tower_menu"),
-    ])
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="casino_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -951,9 +956,9 @@ CASINO_RULES = (
 
 
 async def _show_casino_menu(target, xp: int):
-    """Show casino menu. target can be Message or CallbackQuery."""
-    text = f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\n\n{CASINO_RULES}\n\nВыбери ставку:"
-    kb = _casino_menu_kb(xp)
+    """Show casino mode selection."""
+    text = f"🎰 <b>Казино</b>\n\nXP: <b>{xp}</b>\n\nВыбери режим:"
+    kb = CASINO_MODE_KB
     if isinstance(target, CallbackQuery):
         try:
             await target.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
@@ -1053,7 +1058,7 @@ async def _play_casino_and_show(target, uid: int, bet: int):
     buttons = []
     if repeat_bet >= 1:
         buttons.append([InlineKeyboardButton(text=f"🔄 Повторить ({bet} XP)", callback_data=f"casino_bet:{bet}")])
-    buttons.append([InlineKeyboardButton(text="🎰 Другая ставка", callback_data="casino_menu")])
+    buttons.append([InlineKeyboardButton(text="🎰 Другая ставка", callback_data="casino_mode:slots")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -1077,6 +1082,22 @@ async def callback_casino_menu(callback: CallbackQuery):
     if not cab or cab.get("dead"):
         return
     await _show_casino_menu(callback, cab.get("xp", 0))
+
+
+@router.callback_query(F.data == "casino_mode:slots")
+async def callback_casino_slots(callback: CallbackQuery):
+    await callback.answer()
+    uid = callback.from_user.id
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab or cab.get("dead"):
+        return
+    xp = cab.get("xp", 0)
+    text = f"🎰 <b>Слоты</b>\n\nXP: <b>{xp}</b>\n\n{CASINO_RULES}\n\nВыбери ставку:"
+    kb = _slots_menu_kb(xp)
+    try:
+        await callback.message.edit_text(text=text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text=text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("casino_bet:"))
@@ -1836,6 +1857,7 @@ async def cmd_shop(message: Message):
     lines.append(f"  ✏️ Смена имени — 🪙 {RENAME_COST}")
 
     buttons = skin_buttons
+    buttons.append([InlineKeyboardButton(text="📋 Каталог скинов", callback_data="skin_catalog")])
     buttons.append([
         InlineKeyboardButton(text="💊 Таблетка (150 🪙)", callback_data="buy_item:Таблетка:150"),
         InlineKeyboardButton(text="🧪 Зелье (150 🪙)", callback_data="buy_item:Зелье:150"),
@@ -1847,6 +1869,45 @@ async def cmd_shop(message: Message):
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await _reply(message,"\n".join(lines), parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "skin_catalog")
+async def callback_skin_catalog(callback: CallbackQuery):
+    await callback.answer()
+    result = await skin_service.get_all_skins_catalog()
+    if not result.get("ok") or not result.get("skins"):
+        await callback.message.edit_text(
+            "📋 Каталог скинов пуст.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+            ]),
+        )
+        return
+
+    skins = result["skins"]
+    from core.constants import RARITY_EMOJI, RARITY_ORDER
+    skins.sort(key=lambda s: (RARITY_ORDER.get(s["rarity"], 0), s["display_name"]))
+
+    lines = ["📋 <b>Каталог скинов</b>\n"]
+    current_rarity = None
+    for sk in skins:
+        r = sk["rarity"]
+        if r != current_rarity:
+            current_rarity = r
+            r_em = RARITY_EMOJI.get(r, "⚪")
+            lines.append(f"\n{r_em} <b>{r.upper()}</b>:")
+        lines.append(f"  • {sk['display_name']}")
+
+    lines.append(f"\nВсего скинов: <b>{len(skins)}</b>")
+    lines.append("Получай из коробок или покупай капсулы!")
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
+        ]),
+    )
 
 
 @router.callback_query(F.data == "buy_lottery_confirm")
@@ -2291,7 +2352,11 @@ WIKI_PAGES = {
         "<b>🏗 Башня</b>\n"
         "5 этажей, на каждом спрятаны бомбы.\n"
         "Выбирай ячейку — если безопасно, поднимаешься выше.\n"
-        "Нашёл бомбу — проиграл. Можно забрать выигрыш в любой момент!\n"
+        "Нашёл бомбу — проиграл. Забирай в любой момент!\n\n"
+        "<b>💣 Мины</b>\n"
+        "Поле 5x5 (25 ячеек). Открывай безопасные!\n"
+        "Каждая открытая ячейка увеличивает множитель.\n"
+        "Нашёл бомбу — проиграл. Забирай в любой момент!\n"
         "Больше бомб = выше множители."
     ),
     "skins": (

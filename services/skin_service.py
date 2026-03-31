@@ -174,6 +174,18 @@ async def get_skin_preview(skin_id: str) -> dict:
         }
 
 
+async def get_all_skins_catalog() -> dict:
+    async with get_session() as s:
+        all_skins = await skin_repo.get_all(s)
+        return {
+            "ok": True,
+            "skins": [
+                {"skin_id": sk.skin_id, "display_name": sk.display_name, "rarity": sk.rarity}
+                for sk in all_skins
+            ],
+        }
+
+
 # ---------------------------------------------------------------------------
 # Admin methods
 # ---------------------------------------------------------------------------

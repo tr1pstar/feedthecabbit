@@ -201,7 +201,8 @@ async def cmd_cabbitlist(message: Message):
         await message.answer("Кеббитов пока нет.")
         return
 
-    args = (message.text or "").split()[1:]
+    parts = (message.text or "").split(maxsplit=1)
+    args = [parts[1].strip()] if len(parts) > 1 and parts[1].strip() else []
     if args and args[0].strip():
         query = args[0].strip()
         # Search by uid or name

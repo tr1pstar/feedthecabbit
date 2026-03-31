@@ -85,10 +85,14 @@ def _build_tower_msg(game: dict) -> tuple[str, InlineKeyboardMarkup]:
             )])
     if not alive or floor >= 5:
         buttons.append([InlineKeyboardButton(
-            text="🔄 Ещё раз",
+            text=f"🔄 Повторить ({bet} XP)",
+            callback_data=f"tower_bet:{bombs}:{bet}",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text="🏗 Другая ставка",
             callback_data=f"tower_start:{bombs}",
         )])
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="casino_menu")])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
 
