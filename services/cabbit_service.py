@@ -366,10 +366,10 @@ async def open_box(user_id: int) -> dict:
             heal = FOOD_HEAL.get(food_name, 3 * 3600)
             cab.last_fed = min(now, cab.last_fed + heal)
         elapsed_after = now - cab.last_fed
-        # FIX: use WARN_12H/WARN_23H thresholds (not FOOD_HEAL values)
-        if elapsed_after < WARN_12H:
+        from core.constants import WARN_30PCT, WARN_10PCT
+        if elapsed_after < WARN_30PCT:
             cab.warned_12h = False
-        if elapsed_after < WARN_23H:
+        if elapsed_after < WARN_10PCT:
             cab.warned_23h = False
         cab.duel_tokens += 1
 

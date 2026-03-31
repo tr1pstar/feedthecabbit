@@ -5,9 +5,11 @@ core/constants.py — all game constants extracted from original modules.
 # ─── Cabbit core ──────────────────────────────────────────────────────────────
 
 BOX_INTERVAL    = 30 * 60
-WARN_12H        = 12 * 3600
-WARN_23H        = 23 * 3600
+WARN_12H        = 12 * 3600   # legacy — not used in new system
+WARN_23H        = 23 * 3600   # legacy — not used in new system
 DEATH_24H       = 24 * 3600
+WARN_30PCT      = int(DEATH_24H * 0.70)  # 30% health = 16.8h elapsed
+WARN_10PCT      = int(DEATH_24H * 0.90)  # 10% health = 21.6h elapsed
 NAMING_STATE    = 1
 KNIFE_CHANCE    = 0.15
 

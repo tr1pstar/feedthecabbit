@@ -39,9 +39,9 @@ def hunger_bar(last_fed: int, sick: bool, sick_until: int) -> str:
     elif pct > 30:
         mood = "Голоден и болен 😰" if is_sick else "Немного голоден 😐"
     elif pct > 10:
-        mood = "Очень голоден и болен! 😱" if is_sick else "Очень голоден! 😨"
+        mood = "⚠️ Очень голоден!" if not is_sick else "⚠️ Голоден и болен! 😱"
     else:
-        mood = "Умирает от голода! 💀"
+        mood = "☠️ Умирает от голода!"
     if is_sick:
         left = max(0, sick_until - now)
         mood += f"\n🤒 Болезнь (осталось {left // 3600}ч {(left % 3600) // 60}м)"

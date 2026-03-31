@@ -158,6 +158,14 @@ async def cmd_cabbit(message: Message):
         await _reply(message,RULES_TEXT, parse_mode="HTML", reply_markup=kb)
         return
 
+    if cab.get("banned"):
+        await _reply(message,
+            f"🔨 <b>Твой кеббит забанен.</b>\n\n"
+            f"Причина: <i>{cab.get('ban_reason', 'не указана')}</i>",
+            parse_mode="HTML",
+        )
+        return
+
     if cab.get("dead"):
         name = cab.get("name", "Кеббит")
         await _reply(message,
@@ -2223,10 +2231,10 @@ WIKI_PAGES = {
         "🥕 <b>Морковь</b> — 60% шанс, +80 XP, утоляет голод на 3ч\n"
         "🍗 <b>Корм</b> — 20% шанс, +200 XP, утоляет голод на 6ч\n"
         "✨ <b>Вкусность</b> — 20% шанс, +500 XP, утоляет голод на 12ч\n\n"
-        "⚠️ <b>Предупреждения:</b>\n"
-        "• Через <b>12ч</b> без еды — первое предупреждение\n"
-        "• Через <b>23ч</b> — последнее предупреждение\n"
-        "• Через <b>24ч</b> — кеббит умирает"
+        "⚠️ <b>Здоровье:</b>\n"
+        "• <b>30%</b> — предупреждение о голоде\n"
+        "• <b>10%</b> — критическое состояние!\n"
+        "• <b>0%</b> — кеббит умирает (24ч без еды)"
     ),
     "boxes": (
         "📦 <b>Коробки</b>\n\n"
