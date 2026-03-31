@@ -1888,26 +1888,52 @@ async def callback_skin_catalog(callback: CallbackQuery):
     from core.constants import RARITY_EMOJI, RARITY_ORDER
     skins.sort(key=lambda s: (RARITY_ORDER.get(s["rarity"], 0), s["display_name"]))
 
-    lines = ["📋 <b>Каталог скинов</b>\n"]
-    current_rarity = None
+    buttons = []
     for sk in skins:
-        r = sk["rarity"]
-        if r != current_rarity:
-            current_rarity = r
-            r_em = RARITY_EMOJI.get(r, "⚪")
-            lines.append(f"\n{r_em} <b>{r.upper()}</b>:")
-        lines.append(f"  • {sk['display_name']}")
-
-    lines.append(f"\nВсего скинов: <b>{len(skins)}</b>")
-    lines.append("Получай из коробок или покупай капсулы!")
+        r_em = RARITY_EMOJI.get(sk["rarity"], "⚪")
+        buttons.append([InlineKeyboardButton(
+            text=f"{r_em} {sk['display_name']}",
+            callback_data=f"skin_preview:{sk['skin_id']}",
+        )])
+    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
 
     await callback.message.edit_text(
-        "\n".join(lines),
+        f"📋 <b>Каталог скинов</b> ({len(skins)})\n\nНажми чтобы посмотреть:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")],
-        ]),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
+
+
+@router.callback_query(F.data.startswith("skin_preview:"))
+async def callback_skin_preview(callback: CallbackQuery):
+    skin_id = callback.data.split(":")[1]
+    await callback.answer()
+
+    preview = await skin_service.get_skin_preview(skin_id)
+    if not preview.get("ok"):
+        await callback.message.edit_text("❌ Скин не найден.")
+        return
+
+    r_em = preview.get("rarity_emoji", "⚪")
+    file_id = preview.get("file_id")
+    text = f"{r_em} <b>{preview['display_name']}</b>\nРедкость: {preview['rarity']}"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад к каталогу", callback_data="skin_catalog")],
+    ])
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    if file_id:
+        try:
+            await callback.message.answer_photo(photo=file_id, caption=text, parse_mode="HTML", reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data == "buy_lottery_confirm")

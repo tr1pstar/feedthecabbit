@@ -187,109 +187,102 @@ async def cmd_unbancabbit(message: Message):
 
 @router.message(Command("cabbitlist"))
 async def cmd_cabbitlist(message: Message):
-    """
-    /cabbitlist [uid] — paginated list of all cabbits.
-    /cabbitlist 12345 — search by uid.
-    """
+    """/cabbitlist <запрос> — поиск по имени кеббита или user_id."""
     if message.from_user.id != ADMIN_ID:
-        await message.answer(
-            "❌ Только администратор может использовать эту команду.")
-        return
-
-    all_cabs = await cabbit_service.get_all_cabbits()
-    if not all_cabs:
-        await message.answer("Кеббитов пока нет.")
+        await message.answer("❌ Только администратор.")
         return
 
     parts = (message.text or "").split(maxsplit=1)
-    args = [parts[1].strip()] if len(parts) > 1 and parts[1].strip() else []
-    if args and args[0].strip():
-        query = args[0].strip()
-        # Search by uid or name
-        found = []
-        try:
-            query_uid = int(query)
-            for c in all_cabs:
-                if c["user_id"] == query_uid:
-                    found.append(c)
-                    break
-        except ValueError:
-            pass
-
-        if not found:
-            q_lower = query.lower()
-            for c in all_cabs:
-                if (str(c["user_id"]) == query or
-                        query in str(c["user_id"]) or
-                        q_lower in c.get("name", "").lower()):
-                    found.append(c)
-
-        if not found:
-            await message.answer(
-                f"❌ Ничего не найдено по запросу: <code>{escape(query)}</code>",
-                parse_mode="HTML")
-        elif len(found) == 1:
-            entry = _format_cabbitlist_entry(found[0]["user_id"], found[0])
-            await message.answer(
-                f"📋 <b>Результат поиска:</b>\n\n{entry}", parse_mode="HTML")
-        else:
-            lines = [f"📋 <b>Найдено ({len(found)}):</b>\n"]
-            for c in found[:20]:
-                lines.append(_format_cabbitlist_entry(c["user_id"], c))
-            await message.answer("\n".join(lines), parse_mode="HTML")
+    if len(parts) < 2 or not parts[1].strip():
+        all_cabs = await cabbit_service.get_all_cabbits()
+        alive = sum(1 for c in all_cabs if not c.get("dead"))
+        await message.answer(
+            f"📋 <b>Кеббиты:</b> {len(all_cabs)} всего, {alive} живых\n\n"
+            f"Использование: /cabbitlist имя или user_id",
+            parse_mode="HTML",
+        )
         return
 
-    # Paginated — first page
-    total = len(all_cabs)
-    page_items = all_cabs[:CABBITLIST_PAGE_SIZE]
+    query = parts[1].strip()
+    all_cabs = await cabbit_service.get_all_cabbits()
+    found = []
 
-    total_pages = (total - 1) // CABBITLIST_PAGE_SIZE + 1
-    lines = [f"📋 <b>Все кеббиты ({total}):</b> стр. 1/{total_pages}\n"]
-    for c in page_items:
-        lines.append(_format_cabbitlist_entry(c["user_id"], c))
+    # Search by user_id
+    try:
+        query_uid = int(query)
+        for c in all_cabs:
+            if c["user_id"] == query_uid:
+                found.append(c)
+                break
+    except ValueError:
+        pass
+
+    # Search by name
+    if not found:
+        q_lower = query.lower()
+        for c in all_cabs:
+            if q_lower in c.get("name", "").lower():
+                found.append(c)
+
+    if not found:
+        await message.answer(f"❌ Ничего не найдено: <code>{escape(query)}</code>", parse_mode="HTML")
+        return
 
     buttons = []
-    if total > CABBITLIST_PAGE_SIZE:
-        buttons.append([InlineKeyboardButton(text="▶️ Далее", callback_data="clist:1")])
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
-    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=kb)
+    for c in found[:20]:
+        evo = get_evolution(c["level"])
+        status = "💀" if c.get("dead") else "🔨" if c.get("banned") else "✅"
+        buttons.append([InlineKeyboardButton(
+            text=f"{status} {evo['emoji']} {c['name']} — ур. {c['level']}",
+            callback_data=f"clist_detail:{c['user_id']}",
+        )])
+
+    await message.answer(
+        f"📋 <b>Найдено ({len(found)}):</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
 
 
-@router.callback_query(F.data.startswith("clist:"))
-async def callback_cabbitlist_page(callback: CallbackQuery):
-    """Page navigation for /cabbitlist."""
-    await callback.answer()
+@router.callback_query(F.data.startswith("clist_detail:"))
+async def callback_cabbitlist_detail(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
         return
-
-    page = int(callback.data.split(":")[1])
-    all_cabs = await cabbit_service.get_all_cabbits()
-    total = len(all_cabs)
-    total_pages = (total - 1) // CABBITLIST_PAGE_SIZE + 1
-    start = page * CABBITLIST_PAGE_SIZE
-    page_items = all_cabs[start:start + CABBITLIST_PAGE_SIZE]
-
-    if not page_items:
-        await callback.answer("Страница пуста.", show_alert=True)
+    await callback.answer()
+    uid = int(callback.data.split(":")[1])
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab:
+        await callback.message.edit_text("❌ Не найден.")
         return
 
-    lines = [f"📋 <b>Все кеббиты ({total}):</b> стр. {page + 1}/{total_pages}\n"]
-    for c in page_items:
-        lines.append(_format_cabbitlist_entry(c["user_id"], c))
+    evo = get_evolution(cab["level"])
+    stats = cab.get("stats", {})
+    status = "💀 Мёртв" if cab.get("dead") else "🔨 Забанен" if cab.get("banned") else "✅ Жив"
+
+    text = (
+        f"📋 <b>{cab['name']}</b>\n\n"
+        f"ID: <code>{cab['user_id']}</code>\n"
+        f"Статус: {status}\n"
+        f"{evo['emoji']} Ур. {cab['level']} | {cab['xp']} XP\n"
+        f"🪙 {cab.get('coins', 0)} монет\n"
+        f"🥊 {cab.get('duel_tokens', 0)} жетонов\n"
+        f"⭐ Престиж: {cab.get('prestige_stars', 0)}\n\n"
+        f"📊 Коробок: {stats.get('boxes_opened', 0)}\n"
+        f"🥊 Дуэли: {stats.get('duels_won', 0)}W/{stats.get('duels_lost', 0)}L\n"
+        f"🔪 Убийств: {stats.get('kills', 0)}\n"
+        f"🔪 Нож: {'да' if cab.get('has_knife') else 'нет'}\n"
+        f"🤒 Болен: {'да' if cab.get('sick') else 'нет'}\n"
+        f"🚫 Бан: {cab.get('ban_reason') or 'нет'}"
+    )
 
     buttons = []
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"clist:{page - 1}"))
-    if start + CABBITLIST_PAGE_SIZE < total:
-        nav.append(InlineKeyboardButton(text="▶️ Далее", callback_data=f"clist:{page + 1}"))
-    if nav:
-        buttons.append(nav)
+    if not cab.get("banned"):
+        buttons.append([InlineKeyboardButton(text="🔨 Забанить", callback_data=f"admin_ban:{uid}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="🔓 Разбанить", callback_data=f"admin_unban:{uid}")])
 
-    await callback.message.edit_text(
-        text="\n".join(lines), parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None,
-    )
+    await callback.message.edit_text(text, parse_mode="HTML",
+                                      reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
