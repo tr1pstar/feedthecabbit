@@ -93,7 +93,8 @@ def _build_mines_msg(game: dict) -> tuple[str, InlineKeyboardMarkup]:
             callback_data=f"mines_start:{bombs}",
         )])
 
-    buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="casino_menu")])
+    if not alive or cashed or opened >= safe_total:
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="casino_menu")])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
 
