@@ -1177,20 +1177,33 @@ async def duel_search_query(message: Message, state: FSMContext):
 # Kill callback
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def _show_knife_targets(callback: CallbackQuery, attacker_uid: int):
+async def _show_knife_targets(callback: CallbackQuery, attacker_uid: int, page: int = 0):
     all_cabs = await cabbit_service.get_all_cabbits()
     others = [(c["user_id"], c) for c in all_cabs
               if c["user_id"] != attacker_uid and not c.get("dead")]
+    others.sort(key=lambda x: x[1].get("level", 1), reverse=True)
     if not others:
         await callback.answer("Нет других живых кеббитов для атаки!", show_alert=True)
         return
-    kb = paginated_target_buttons(others, 0, "kill", "kill:cancel")
+    kb = paginated_target_buttons(others, page, "kill", "kill:cancel", nav_prefix="kill_page")
     try:
         await callback.message.edit_caption(caption="🔪 <b>Выбери жертву:</b>",
                                             parse_mode="HTML", reply_markup=kb)
     except Exception:
         await callback.message.edit_text(text="🔪 <b>Выбери жертву:</b>",
                                          parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("kill_page:"))
+async def callback_kill_page(callback: CallbackQuery):
+    uid = callback.from_user.id
+    try:
+        page = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer()
+        return
+    await callback.answer()
+    await _show_knife_targets(callback, uid, page)
 
 
 @router.callback_query(F.data.startswith("kill:"))

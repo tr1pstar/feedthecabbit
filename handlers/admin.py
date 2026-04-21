@@ -748,18 +748,37 @@ async def cmd_seasoninfo(message: Message):
 
 @router.message(Command("takeknife"))
 async def cmd_takeknife(message: Message):
-    """/takeknife — take knife from whoever has it."""
+    """/takeknife [user_id] — take knife from whoever has it, or from a specific user."""
     if message.from_user.id != ADMIN_ID:
         await message.answer("❌ Только администратор.")
         return
 
+    args = (message.text or "").split()
+    target_uid = None
+    if len(args) >= 2:
+        try:
+            target_uid = int(args[1])
+        except ValueError:
+            await message.answer("❌ user_id должен быть числом.")
+            return
+
     from db.engine import get_session
     from repositories import cabbit_repo
     async with get_session() as s:
-        cab = await cabbit_repo.get_knife_owner(s)
-        if not cab:
-            await message.answer("❌ Ни у кого нет ножа.")
-            return
+        if target_uid is not None:
+            cab = await cabbit_repo.get(s, target_uid)
+            if not cab:
+                await message.answer(f"❌ Кеббит {target_uid} не найден.")
+                return
+            if not cab.has_knife:
+                await message.answer(f"❌ У <b>{cab.name}</b> ({target_uid}) нет ножа.",
+                                     parse_mode="HTML")
+                return
+        else:
+            cab = await cabbit_repo.get_knife_owner(s)
+            if not cab:
+                await message.answer("❌ Ни у кого нет ножа.")
+                return
         name = cab.name
         uid = cab.user_id
         cab.has_knife = False
@@ -767,6 +786,116 @@ async def cmd_takeknife(message: Message):
         await cabbit_repo.save(s, cab)
 
     await message.answer(f"✅ Нож забран у <b>{name}</b> ({uid})", parse_mode="HTML")
+
+
+@router.message(Command("whoknife"))
+async def cmd_whoknife(message: Message):
+    """/whoknife — show who currently has the knife."""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    import time
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        cab = await cabbit_repo.get_knife_owner(s)
+        if not cab:
+            await message.answer("🔪 Ни у кого нет ножа.")
+            return
+        name = cab.name
+        uid = cab.user_id
+        until = cab.knife_until
+        now = int(time.time())
+
+    if until > 0:
+        remaining = max(0, until - now)
+        hrs = remaining // 3600
+        mins = (remaining % 3600) // 60
+        expiry = f"через {hrs}ч {mins}мин"
+    else:
+        expiry = "бессрочно"
+
+    await message.answer(
+        f"🔪 Нож у <b>{name}</b>\n"
+        f"👤 <code>{uid}</code>\n"
+        f"⏳ Истекает: {expiry}",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("giveknife"))
+async def cmd_giveknife(message: Message):
+    """/giveknife <user_id> [hours] — give knife to a user (default 6h, forces takeover)."""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("Использование: /giveknife user_id [часы]")
+        return
+
+    try:
+        target_uid = int(args[1])
+    except ValueError:
+        await message.answer("❌ user_id должен быть числом.")
+        return
+
+    hours = 6
+    if len(args) >= 3:
+        try:
+            hours = int(args[2])
+        except ValueError:
+            await message.answer("❌ Часы должны быть числом.")
+            return
+
+    import time
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, target_uid)
+        if not cab:
+            await message.answer(f"❌ Кеббит {target_uid} не найден.")
+            return
+        if cab.dead:
+            await message.answer(f"❌ <b>{cab.name}</b> мёртв — ножом не воспользуется.",
+                                 parse_mode="HTML")
+            return
+
+        # If someone else has the knife, take it first (knife is single-holder)
+        current = await cabbit_repo.get_knife_owner(s)
+        took_from = None
+        if current and current.user_id != target_uid:
+            took_from = (current.name, current.user_id)
+            current.has_knife = False
+            current.knife_until = 0
+            await cabbit_repo.save(s, current)
+
+        now = int(time.time())
+        cab.has_knife = True
+        cab.knife_until = now + hours * 3600
+        await cabbit_repo.save(s, cab)
+        name = cab.name
+
+    reply = f"✅ Нож выдан <b>{name}</b> ({target_uid}) на <b>{hours}ч</b>"
+    if took_from:
+        reply += f"\n↪️ Забран у <b>{took_from[0]}</b> ({took_from[1]})"
+    await message.answer(reply, parse_mode="HTML")
+
+    # Notify recipient
+    try:
+        await message.bot.send_message(
+            chat_id=target_uid,
+            text=(
+                f"🔪 <b>Тебе выдали нож!</b>\n\n"
+                f"Срок действия: <b>{hours}ч</b>.\n"
+                f"Используй /knife чтобы убить чужого кеббита."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"giveknife notify uid={target_uid}: {e}")
 
 
 @router.message(Command("giveautocollect"))

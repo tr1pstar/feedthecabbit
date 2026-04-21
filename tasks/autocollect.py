@@ -28,15 +28,31 @@ async def autocollect_task(bot: Bot):
                     food_name = result.get("food_name", "Еда")
                     actual_xp = result.get("actual_xp", 0)
                     coins = result.get("coins_gained", 0)
+                    got_knife = result.get("got_knife", False)
 
-                    parts = [
-                        f"📦 <b>Автосбор!</b>\n",
-                        f"{food_emoji} {food_name} — +{actual_xp} XP",
-                        f"🪙 +{coins} монет",
-                    ]
+                    parts = [f"📦 <b>Автосбор!</b>\n"]
+                    if got_knife:
+                        parts.append(
+                            "🔪 <b>ВАУ! Выпал НОЖ!</b>\n"
+                            "Можешь убить чужого кеббита — /knife")
+                    else:
+                        parts.append(f"{food_emoji} {food_name} — +{actual_xp} XP")
+                    parts.append(f"🪙 +{coins} монет")
 
-                    if result.get("got_knife"):
-                        parts.append("\n🔪 <b>ВАУ! Выпал НОЖ!</b>")
+                    if got_knife:
+                        for other_uid in result.get("notify_knife_uids", []):
+                            try:
+                                await bot.send_message(
+                                    chat_id=other_uid,
+                                    text=(
+                                        "🔪 <b>Кто-то нашёл нож!</b>\n\n"
+                                        "В одной из коробок был обнаружен нож.\n"
+                                        "Один из кеббитов теперь вооружён — будь осторожен! 👀"
+                                    ),
+                                    parse_mode="HTML",
+                                )
+                            except Exception as e:
+                                logger.warning(f"knife notify uid={other_uid}: {e}")
 
                     item = result.get("item")
                     if item:
