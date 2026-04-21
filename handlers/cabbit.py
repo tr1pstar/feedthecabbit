@@ -1872,6 +1872,8 @@ async def cmd_shop(message: Message):
         InlineKeyboardButton(text="🧪 Зелье (150 🪙)", callback_data="buy_item:Зелье:150"),
     ])
     buttons.append([InlineKeyboardButton(text="🎟 Лотерейный билет (300 🪙)", callback_data="buy_lottery_confirm")])
+    buttons.append([InlineKeyboardButton(
+        text=f"✏️ Сменить имя ({RENAME_COST} 🪙)", callback_data="cabbit:rename")])
     buttons.append([InlineKeyboardButton(text="💰 Купить монеты", callback_data="coinshop")])
     buttons.append([InlineKeyboardButton(text="💝 Донат", callback_data="donate_start")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:refresh")])
