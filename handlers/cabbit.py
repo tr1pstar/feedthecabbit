@@ -309,7 +309,7 @@ async def callback_ach_page(callback: CallbackQuery):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("cabbit:"))
-async def callback_cabbit(callback: CallbackQuery):
+async def callback_cabbit(callback: CallbackQuery, state: FSMContext):
     uid = callback.from_user.id
     action = callback.data.split(":")[1]
     cab = await cabbit_service.get_cabbit(uid)
@@ -714,7 +714,7 @@ async def callback_cabbit(callback: CallbackQuery):
         await _edit_card(callback, cab, text)
         return
 
-    # ── duel ──────────────────────────────────────────────────────────────
+    # ── rename ────────────────────────────────────────────────────────────
     if action == "rename":
         await callback.answer()
         coins = cab.get("coins", 0)
@@ -731,27 +731,23 @@ async def callback_cabbit(callback: CallbackQuery):
                 f"✏️ <b>Смена имени</b>\n\n"
                 f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
                 f"Баланс: <b>{coins} 🪙</b>\n\n"
-                f"Напиши новое имя (до 20 символов):"
+                f"Напиши новое имя (до 20 символов) следующим сообщением:"
             )
-            buttons = [[InlineKeyboardButton(text="❌ Отмена", callback_data="cabbit:shop")]]
-            # Set FSM state
-            from aiogram.fsm.context import FSMContext
-            # We can't set FSM from callback without state, so use a flag
-            # Instead, prompt user to use /rename command
-            text = (
-                f"✏️ <b>Смена имени</b>\n\n"
-                f"Стоимость: <b>{RENAME_COST} 🪙</b>\n"
-                f"Баланс: <b>{coins} 🪙</b>\n\n"
-                f"Используй команду:\n"
-                f"<code>/rename НовоеИмя</code>"
-            )
-            buttons = [[InlineKeyboardButton(text="◀️ Назад", callback_data="cabbit:shop")]]
+            buttons = [[InlineKeyboardButton(text="❌ Отмена", callback_data="cabbit:rename_cancel")]]
+            await state.set_state(RenamingState.waiting_new_name)
         try:
             await callback.message.edit_caption(caption=text, parse_mode="HTML",
                                                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         except Exception:
             await callback.message.edit_text(text=text, parse_mode="HTML",
                                              reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        return
+
+    if action == "rename_cancel":
+        await callback.answer("Отменено")
+        await state.clear()
+        # Fall through to redraw the cabbit card
+        await _edit_card(callback, cab)
         return
 
     if action == "duel":
@@ -2204,8 +2200,49 @@ async def callback_shop_back(callback: CallbackQuery):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Rename command
+# Rename command / flow
 # ──────────────────────────────────────────────────────────────────────────────
+
+@router.message(RenamingState.waiting_new_name, F.text)
+async def receive_new_name(message: Message, state: FSMContext):
+    """Handle new name text after user pressed the rename button in the shop."""
+    if message.text and message.text.strip() in REPLY_KB_LABELS:
+        return
+    if message.text and message.text.startswith("/"):
+        # Let other command handlers run; clear state first to avoid stuck input
+        await state.clear()
+        return
+
+    await state.clear()
+    uid = message.from_user.id
+    new_name = (message.text or "").strip()[:20].replace("<", "").replace(">", "").replace("&", "")
+
+    if not new_name:
+        await _reply(message, "❌ Имя не может быть пустым. Попробуй ещё раз через магазин.")
+        return
+
+    result = await cabbit_service.rename_cabbit(uid, new_name)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "insufficient_coins":
+            await _reply(message,
+                f"❌ Не хватает монет!\n"
+                f"Нужно: <b>{RENAME_COST} 🪙</b>\n"
+                f"У тебя: <b>{result.get('coins', 0)} 🪙</b>",
+                parse_mode="HTML")
+        elif err == "invalid_name":
+            await _reply(message, "❌ Недопустимое имя.")
+        else:
+            await _reply(message, "❌ Ошибка.")
+        return
+
+    await _reply(message,
+        f"✅ Имя изменено!\n\n"
+        f"<b>{escape(result['old_name'])}</b> → <b>{escape(result['new_name'])}</b>\n"
+        f"🪙 -{RENAME_COST} монет (осталось: {result['coins_left']})",
+        parse_mode="HTML",
+    )
+
 
 @router.message(Command("rename"))
 async def cmd_rename(message: Message):
