@@ -24,6 +24,10 @@ class AddSkinState(StatesGroup):
     waiting_photo = State()
 
 
+class CabbitListSearchState(StatesGroup):
+    waiting_query = State()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -185,104 +189,512 @@ async def cmd_unbancabbit(message: Message):
 # Cabbit list with pagination
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _leaderboard_sort_key(c: dict):
+    return (
+        -(c.get("prestige_stars", 0)),
+        -(c.get("level", 1)),
+        -(c.get("xp", 0)),
+    )
+
+
+def _fmt_ts(ts: int | None) -> str:
+    if not ts:
+        return "—"
+    import time
+    delta = int(time.time()) - int(ts)
+    if delta < 60:
+        return f"{delta}с назад"
+    if delta < 3600:
+        return f"{delta // 60}мин назад"
+    if delta < 86400:
+        return f"{delta // 3600}ч назад"
+    return f"{delta // 86400}д назад"
+
+
+def _fmt_until(ts: int | None) -> str:
+    if not ts:
+        return "—"
+    import time
+    remaining = int(ts) - int(time.time())
+    if remaining <= 0:
+        return "истёк"
+    if remaining < 3600:
+        return f"через {remaining // 60}мин"
+    if remaining < 86400:
+        h = remaining // 3600
+        m = (remaining % 3600) // 60
+        return f"через {h}ч {m}мин"
+    return f"через {remaining // 86400}д"
+
+
+def _build_list_keyboard(cabs: list[dict], page: int, back_cb: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
+    total = len(cabs)
+    pages = max(1, (total + CABBITLIST_PAGE_SIZE - 1) // CABBITLIST_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    start = page * CABBITLIST_PAGE_SIZE
+    chunk = cabs[start:start + CABBITLIST_PAGE_SIZE]
+
+    buttons = []
+    for i, c in enumerate(chunk, start=start + 1):
+        evo = get_evolution(c.get("level", 1))
+        if c.get("banned"):
+            status_icon = "🔨"
+        elif c.get("dead"):
+            status_icon = "💀"
+        else:
+            status_icon = "✅"
+        stars = c.get("prestige_stars", 0)
+        stars_s = "⭐" * stars if stars else ""
+        knife = " 🔪" if c.get("has_knife") else ""
+        label = (
+            f"{i}. {status_icon} {evo['emoji']} {c.get('name', '?')}{stars_s}{knife}"
+            f" — ур.{c.get('level', 1)}"
+        )
+        buttons.append([InlineKeyboardButton(
+            text=label[:64],
+            callback_data=f"clist_detail:{c['user_id']}",
+        )])
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"clist_page:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="clist_noop"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"clist_page:{page + 1}"))
+    if pages > 1:
+        buttons.append(nav)
+
+    bottom = [InlineKeyboardButton(text="🔍 Поиск", callback_data="clist_search")]
+    if back_cb:
+        bottom.append(InlineKeyboardButton(text="📋 Лидерборд", callback_data=back_cb))
+    buttons.append(bottom)
+
+    alive = sum(1 for c in cabs if not c.get("dead"))
+    header = (
+        f"📋 <b>Лидерборд</b> — {total} кеббит(ов), {alive} живых\n"
+        f"<i>Страница {page + 1}/{pages}</i>"
+    )
+    return header, InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _build_detail_view(cab: dict, active_duel=None, skins_count: int = 0) -> tuple[str, InlineKeyboardMarkup]:
+    import time
+    now = int(time.time())
+    evo = get_evolution(cab.get("level", 1))
+    stats = cab.get("stats", {})
+
+    if cab.get("banned"):
+        status = f"🔨 Забанен ({cab.get('ban_reason') or '—'})"
+    elif cab.get("dead"):
+        status = "💀 Мёртв"
+    else:
+        status = "✅ Жив"
+
+    # Knife
+    if cab.get("has_knife"):
+        knife_line = f"🔪 Нож: ДА ({_fmt_until(cab.get('knife_until'))})"
+    else:
+        knife_line = "🔪 Нож: нет"
+
+    # Sick
+    if cab.get("sick"):
+        sick_line = f"🤒 Болен: ДА ({_fmt_until(cab.get('sick_until'))})"
+    else:
+        sick_line = "🤒 Болен: нет"
+
+    # Autocollect
+    auto_until = cab.get("autocollect_until", 0)
+    if auto_until and auto_until > now:
+        auto_line = f"📦 Автосбор: ✅ ({_fmt_until(auto_until)})"
+    else:
+        auto_line = "📦 Автосбор: —"
+
+    # Hunger
+    last_fed = cab.get("last_fed", 0)
+    hunger_sec = now - last_fed if last_fed else 0
+    hunger_pct = max(0, 100 - int(hunger_sec / 86400 * 100))
+
+    # Inventory
+    inv = cab.get("inventory") or {}
+    inv_items = [f"{k}×{v}" for k, v in inv.items() if v]
+    inv_str = ", ".join(inv_items) if inv_items else "пусто"
+
+    # Food counts
+    food = cab.get("food_counts") or {}
+    food_items = [f"{k}×{v}" for k, v in food.items() if v]
+    food_str = ", ".join(food_items) if food_items else "—"
+
+    # Stats
+    boxes = stats.get("boxes_opened", 0)
+    duels_won = stats.get("duels_won", 0)
+    duels_lost = stats.get("duels_lost", 0)
+    raids_ok = stats.get("raids_ok", 0)
+    raids_fail = stats.get("raids_fail", 0)
+    c_wins = stats.get("casino_wins", 0)
+    c_losses = stats.get("casino_losses", 0)
+    c_xp_won = stats.get("casino_xp_won", 0)
+    c_xp_lost = stats.get("casino_xp_lost", 0)
+    xp_total = stats.get("xp_earned_total", 0)
+    kills = stats.get("kills", 0)
+    max_level = stats.get("max_level", cab.get("level", 1))
+    prestige_cnt = stats.get("prestige_count", 0)
+
+    achs = cab.get("achievements") or []
+
+    # Active duel
+    duel_line = ""
+    if active_duel:
+        opponent = active_duel["opponent_name"]
+        duel_line = (
+            f"\n⚔️ <b>Активная дуэль</b>\n"
+            f"   Тип: {active_duel['type']} | Статус: {active_duel['status']}\n"
+            f"   Против: {escape(opponent)} (uid {active_duel['opponent_uid']})\n"
+            f"   Ставка: {active_duel['stake']} XP | Раунд: {active_duel['round']}\n"
+        )
+
+    # Referral
+    ref_line = ""
+    if cab.get("referred_by"):
+        rewarded = "✅" if cab.get("referral_rewarded") else "⏳"
+        ref_line = f"\n👥 Приглашён: <code>{cab['referred_by']}</code> {rewarded}"
+
+    # Ban info
+    ban_line = ""
+    if cab.get("banned"):
+        ban_by = cab.get("banned_by") or "—"
+        ban_at = _fmt_ts(cab.get("banned_at"))
+        ban_line = f"\n🔨 Забанен: {ban_at} админом <code>{ban_by}</code>"
+
+    text = (
+        f"📋 <b>{escape(cab.get('name', '?'))}</b> {'⭐' * cab.get('prestige_stars', 0)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"ID: <code>{cab['user_id']}</code> | UID: <code>{cab.get('uid', '—')}</code>\n"
+        f"Статус: {status}\n"
+        f"Сезон: {cab.get('season', 1)}\n"
+        f"{evo['emoji']} Ур. {cab.get('level', 1)} ({cab.get('xp', 0)} XP) | Макс: {max_level}\n"
+        f"🪙 {cab.get('coins', 0)} монет | 🥊 {cab.get('duel_tokens', 0)} жетонов\n"
+        f"⭐ Престиж: {cab.get('prestige_stars', 0)} (сделано раз: {prestige_cnt})\n"
+        f"🍗 Голод: {hunger_pct}% | Последнее кормление: {_fmt_ts(last_fed)}\n"
+        f"{knife_line}\n"
+        f"{sick_line}\n"
+        f"{auto_line}\n"
+        f"👑 Корон осталось: {cab.get('crown_boxes', 0)}\n"
+        f"🎨 Скинов: {skins_count} | Экипирован: {cab.get('skin') or '—'}\n"
+        f"\n"
+        f"📦 <b>Активность</b>\n"
+        f"   Коробок: <b>{boxes}</b> | XP всего: <b>{xp_total}</b>\n"
+        f"   Последний рейд: {_fmt_ts(cab.get('last_raid'))}\n"
+        f"   Следующая коробка: {_fmt_until(cab.get('box_ts')) if not cab.get('box_available') else 'готова'}\n"
+        f"\n"
+        f"⚔️ <b>Бой</b>\n"
+        f"   🥊 Дуэли: <b>{duels_won}W / {duels_lost}L</b>\n"
+        f"   🏴‍☠️ Рейды: <b>{raids_ok}✓ / {raids_fail}✗</b>\n"
+        f"   🔪 Убийств: <b>{kills}</b>\n"
+        f"\n"
+        f"🎰 <b>Казино/Слоты/Mines/Tower</b>\n"
+        f"   Побед: <b>{c_wins}</b> | Поражений: <b>{c_losses}</b>\n"
+        f"   Выиграно: <b>+{c_xp_won} XP</b> | Проиграно: <b>-{c_xp_lost} XP</b>\n"
+        f"   Баланс: <b>{c_xp_won - c_xp_lost:+d} XP</b>\n"
+        f"\n"
+        f"🎒 <b>Инвентарь:</b> {inv_str}\n"
+        f"🍗 <b>Съедено:</b> {food_str}\n"
+        f"🏆 <b>Ачивок:</b> {len(achs)}"
+        f"{duel_line}"
+        f"{ref_line}"
+        f"{ban_line}"
+    )
+
+    buttons = []
+    if not cab.get("banned"):
+        buttons.append([InlineKeyboardButton(text="🔨 Забанить", callback_data=f"admin_ban:{cab['user_id']}")])
+    else:
+        buttons.append([InlineKeyboardButton(text="🔓 Разбанить", callback_data=f"admin_unban:{cab['user_id']}")])
+    buttons.append([InlineKeyboardButton(text="◀️ К списку", callback_data="clist_page:0")])
+
+    return text, InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def _get_active_duel_info(uid: int) -> dict | None:
+    from db.engine import get_session
+    from repositories import duel_repo, cabbit_repo
+    async with get_session() as s:
+        duel = await duel_repo.find_by_user(s, uid)
+        if not duel:
+            return None
+        opponent_uid = duel.target_id if duel.challenger_id == uid else duel.challenger_id
+        opp = await cabbit_repo.get(s, opponent_uid)
+        return {
+            "type": duel.duel_type,
+            "status": duel.status,
+            "opponent_uid": opponent_uid,
+            "opponent_name": opp.name if opp else "—",
+            "stake": duel.stake,
+            "round": duel.round,
+        }
+
+
+async def _count_skins(uid: int) -> int:
+    from db.engine import get_session
+    from repositories import skin_repo
+    async with get_session() as s:
+        owned = await skin_repo.get_user_skins(s, uid)
+        return len(owned)
+
+
 @router.message(Command("cabbitlist"))
-async def cmd_cabbitlist(message: Message):
-    """/cabbitlist <запрос> — поиск по имени кеббита или user_id."""
+async def cmd_cabbitlist(message: Message, state: FSMContext):
+    """/cabbitlist [запрос] — лидерборд всех кеббитов, либо поиск по имени/user_id."""
     if message.from_user.id != ADMIN_ID:
         await message.answer("❌ Только администратор.")
         return
 
+    # If admin was in search-input state, clear it so /cabbitlist always resets
+    await state.clear()
+
     parts = (message.text or "").split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        all_cabs = await cabbit_service.get_all_cabbits()
-        alive = sum(1 for c in all_cabs if not c.get("dead"))
-        await message.answer(
-            f"📋 <b>Кеббиты:</b> {len(all_cabs)} всего, {alive} живых\n\n"
-            f"Использование: /cabbitlist имя или user_id",
-            parse_mode="HTML",
-        )
+    query = parts[1].strip() if len(parts) > 1 else ""
+    all_cabs = await cabbit_service.get_all_cabbits()
+
+    if not query:
+        all_cabs.sort(key=_leaderboard_sort_key)
+        text, kb = _build_list_keyboard(all_cabs, 0)
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
         return
 
-    query = parts[1].strip()
-    all_cabs = await cabbit_service.get_all_cabbits()
-    found = []
+    found = _filter_cabs(all_cabs, query)
+    if not found:
+        await message.answer(f"❌ Ничего не найдено: <code>{escape(query)}</code>",
+                             parse_mode="HTML")
+        return
 
+    found.sort(key=_leaderboard_sort_key)
+    text, kb = _build_list_keyboard(found, 0)
+    header = f"🔍 <b>Результаты по «{escape(query)}»</b>\n" + text.split("\n", 1)[1]
+    await message.answer(header, parse_mode="HTML", reply_markup=kb)
+
+
+def _filter_cabs(all_cabs: list[dict], query: str) -> list[dict]:
+    found = []
     # Search by user_id
     try:
         query_uid = int(query)
         for c in all_cabs:
             if c["user_id"] == query_uid:
                 found.append(c)
-                break
+                return found
     except ValueError:
         pass
+    # Search by name substring
+    q_lower = query.lower()
+    for c in all_cabs:
+        if q_lower in c.get("name", "").lower():
+            found.append(c)
+    return found
 
-    # Search by name
-    if not found:
-        q_lower = query.lower()
-        for c in all_cabs:
-            if q_lower in c.get("name", "").lower():
-                found.append(c)
 
-    if not found:
-        await message.answer(f"❌ Ничего не найдено: <code>{escape(query)}</code>", parse_mode="HTML")
+@router.callback_query(F.data.startswith("clist_page:"))
+async def callback_clist_page(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
+        return
+    try:
+        page = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer()
+        return
+    await callback.answer()
+    all_cabs = await cabbit_service.get_all_cabbits()
+    all_cabs.sort(key=_leaderboard_sort_key)
+    text, kb = _build_list_keyboard(all_cabs, page)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "clist_noop")
+async def callback_clist_noop(callback: CallbackQuery):
+    await callback.answer()
+
+
+@router.callback_query(F.data == "clist_search")
+async def callback_clist_search(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
+        return
+    await callback.answer()
+    await state.set_state(CabbitListSearchState.waiting_query)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="clist_search_cancel")]
+    ])
+    try:
+        await callback.message.edit_text(
+            "🔍 <b>Поиск кеббита</b>\n\nВведи имя или user_id следующим сообщением:",
+            parse_mode="HTML", reply_markup=kb,
+        )
+    except Exception:
+        await callback.message.answer(
+            "🔍 <b>Поиск кеббита</b>\n\nВведи имя или user_id следующим сообщением:",
+            parse_mode="HTML", reply_markup=kb,
+        )
+
+
+@router.callback_query(F.data == "clist_search_cancel")
+async def callback_clist_search_cancel(callback: CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
+        return
+    await callback.answer("Отменено")
+    await state.clear()
+    all_cabs = await cabbit_service.get_all_cabbits()
+    all_cabs.sort(key=_leaderboard_sort_key)
+    text, kb = _build_list_keyboard(all_cabs, 0)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(CabbitListSearchState.waiting_query, F.text)
+async def receive_clist_query(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+    await state.clear()
+    query = (message.text or "").strip()
+    if not query:
+        await message.answer("❌ Пустой запрос.")
         return
 
-    buttons = []
-    for c in found[:20]:
-        evo = get_evolution(c["level"])
-        status = "💀" if c.get("dead") else "🔨" if c.get("banned") else "✅"
-        buttons.append([InlineKeyboardButton(
-            text=f"{status} {evo['emoji']} {c['name']} — ур. {c['level']}",
-            callback_data=f"clist_detail:{c['user_id']}",
-        )])
+    all_cabs = await cabbit_service.get_all_cabbits()
+    found = _filter_cabs(all_cabs, query)
+    if not found:
+        await message.answer(
+            f"❌ Ничего не найдено: <code>{escape(query)}</code>\n\n"
+            f"Используй /cabbitlist чтобы вернуться к лидерборду.",
+            parse_mode="HTML",
+        )
+        return
+    found.sort(key=_leaderboard_sort_key)
+    text, kb = _build_list_keyboard(found, 0)
+    header = f"🔍 <b>Результаты по «{escape(query)}»</b>\n" + text.split("\n", 1)[1]
+    await message.answer(header, parse_mode="HTML", reply_markup=kb)
 
-    await message.answer(
-        f"📋 <b>Найдено ({len(found)}):</b>",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
+
+async def _refresh_detail(callback: CallbackQuery, uid: int):
+    cab = await cabbit_service.get_cabbit(uid)
+    if not cab:
+        try:
+            await callback.message.edit_text("❌ Не найден.")
+        except Exception:
+            pass
+        return
+    active_duel = await _get_active_duel_info(uid)
+    skins_count = await _count_skins(uid)
+    text, kb = _build_detail_view(cab, active_duel, skins_count)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("admin_ban:"))
+async def callback_admin_ban(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
+        return
+    try:
+        uid = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer()
+        return
+    result = await cabbit_service.ban_cabbit(uid, callback.from_user.id, "Забанен через /cabbitlist")
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "already_dead":
+            await callback.answer("Уже мёртв", show_alert=True)
+        elif err == "already_banned":
+            await callback.answer("Уже забанен", show_alert=True)
+        elif err == "not_found":
+            await callback.answer("Не найден", show_alert=True)
+        else:
+            await callback.answer("❌ Ошибка", show_alert=True)
+        return
+    await callback.answer("🔨 Забанен")
+    try:
+        await callback.bot.send_message(
+            chat_id=uid,
+            text=(
+                f"🔨 <b>{result['target_name']} был забанен администратором.</b>\n\n"
+                f"Напиши /cabbit чтобы завести нового."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"inline ban notify uid={uid}: {e}")
+    await _refresh_detail(callback, uid)
+
+
+@router.callback_query(F.data.startswith("admin_unban:"))
+async def callback_admin_unban(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
+        return
+    try:
+        uid = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        await callback.answer()
+        return
+    result = await cabbit_service.unban_cabbit(uid)
+    if not result.get("ok"):
+        err = result.get("error", "")
+        if err == "not_banned":
+            await callback.answer("Не забанен", show_alert=True)
+        elif err == "not_found":
+            await callback.answer("Не найден", show_alert=True)
+        else:
+            await callback.answer("❌ Ошибка", show_alert=True)
+        return
+    await callback.answer("🔓 Разбанен")
+    try:
+        await callback.bot.send_message(
+            chat_id=uid,
+            text=f"🔓 <b>Твой кеббит «{result['target_name']}» разбанен!</b>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"inline unban notify uid={uid}: {e}")
+    await _refresh_detail(callback, uid)
 
 
 @router.callback_query(F.data.startswith("clist_detail:"))
 async def callback_cabbitlist_detail(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
+        await callback.answer()
         return
     await callback.answer()
-    uid = int(callback.data.split(":")[1])
+    try:
+        uid = int(callback.data.split(":")[1])
+    except (ValueError, IndexError):
+        return
     cab = await cabbit_service.get_cabbit(uid)
     if not cab:
-        await callback.message.edit_text("❌ Не найден.")
+        try:
+            await callback.message.edit_text("❌ Не найден.")
+        except Exception:
+            pass
         return
 
-    evo = get_evolution(cab["level"])
-    stats = cab.get("stats", {})
-    status = "💀 Мёртв" if cab.get("dead") else "🔨 Забанен" if cab.get("banned") else "✅ Жив"
-
-    text = (
-        f"📋 <b>{cab['name']}</b>\n\n"
-        f"ID: <code>{cab['user_id']}</code>\n"
-        f"Статус: {status}\n"
-        f"{evo['emoji']} Ур. {cab['level']} | {cab['xp']} XP\n"
-        f"🪙 {cab.get('coins', 0)} монет\n"
-        f"🥊 {cab.get('duel_tokens', 0)} жетонов\n"
-        f"⭐ Престиж: {cab.get('prestige_stars', 0)}\n\n"
-        f"📊 Коробок: {stats.get('boxes_opened', 0)}\n"
-        f"🥊 Дуэли: {stats.get('duels_won', 0)}W/{stats.get('duels_lost', 0)}L\n"
-        f"🔪 Убийств: {stats.get('kills', 0)}\n"
-        f"🔪 Нож: {'да' if cab.get('has_knife') else 'нет'}\n"
-        f"🤒 Болен: {'да' if cab.get('sick') else 'нет'}\n"
-        f"🚫 Бан: {cab.get('ban_reason') or 'нет'}"
-    )
-
-    buttons = []
-    if not cab.get("banned"):
-        buttons.append([InlineKeyboardButton(text="🔨 Забанить", callback_data=f"admin_ban:{uid}")])
-    else:
-        buttons.append([InlineKeyboardButton(text="🔓 Разбанить", callback_data=f"admin_unban:{uid}")])
-
-    await callback.message.edit_text(text, parse_mode="HTML",
-                                      reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    active_duel = await _get_active_duel_info(uid)
+    skins_count = await _count_skins(uid)
+    text, kb = _build_detail_view(cab, active_duel, skins_count)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        # Fallback: send as new message if edit fails (e.g. text too long for caption)
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
