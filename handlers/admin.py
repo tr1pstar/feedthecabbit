@@ -1310,6 +1310,73 @@ async def cmd_giveknife(message: Message):
         logger.warning(f"giveknife notify uid={target_uid}: {e}")
 
 
+@router.message(Command("giveshield"))
+async def cmd_giveshield(message: Message):
+    """/giveshield <user_id> [count] — give shield(s) to a user (default 1)."""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Только администратор.")
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("Использование: /giveshield user_id [кол-во]")
+        return
+
+    try:
+        target_uid = int(args[1])
+    except ValueError:
+        await message.answer("❌ user_id должен быть числом.")
+        return
+
+    count = 1
+    if len(args) >= 3:
+        try:
+            count = int(args[2])
+        except ValueError:
+            await message.answer("❌ Количество должно быть числом.")
+            return
+    if count <= 0:
+        await message.answer("❌ Количество должно быть положительным.")
+        return
+
+    from db.engine import get_session
+    from repositories import cabbit_repo
+    async with get_session() as s:
+        cab = await cabbit_repo.get(s, target_uid)
+        if not cab:
+            await message.answer(f"❌ Кеббит {target_uid} не найден.")
+            return
+        if cab.dead:
+            await message.answer(f"❌ <b>{cab.name}</b> мёртв — щит не пригодится.",
+                                 parse_mode="HTML")
+            return
+        inv = dict(cab.inventory or {})
+        inv["Щит"] = inv.get("Щит", 0) + count
+        cab.inventory = inv
+        await cabbit_repo.save(s, cab)
+        name = cab.name
+        total = inv["Щит"]
+
+    await message.answer(
+        f"✅ <b>{name}</b> ({target_uid}) получил 🛡 <b>x{count}</b> "
+        f"(всего: {total})",
+        parse_mode="HTML",
+    )
+
+    try:
+        await message.bot.send_message(
+            chat_id=target_uid,
+            text=(
+                f"🛡 <b>Тебе выдали щит x{count}!</b>\n\n"
+                f"Защищает от удара ножом (один раз за щит).\n"
+                f"Всего щитов: <b>{total}</b>."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"giveshield notify uid={target_uid}: {e}")
+
+
 @router.message(Command("giveautocollect"))
 async def cmd_giveautocollect(message: Message):
     """/giveautocollect <user_id> <hours>"""
